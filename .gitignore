@@ -1,0 +1,30 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Logs and scratch files from running the tools
+*.log
+*.tmp
+*.tmp.npz
+*.joining
+
+
+# FaceRecognizer.exe build (build_app.bat)
+face-recognizer/build/
+face-recognizer/FaceRecognizer.exe
+
+# AdaFace: evaluation only, made locally by tools/get_adaface.py (not shipped)
+face-recognizer/models/adaface_ir101_webface12m.onnx
+face-recognizer/models/adaface_src/
+
+# fetch_models.py partial downloads
+*.download
+
+# labels.json copies from each labeling-tool start: local safety net only (git history has the rest)
+face-recognizer/data/backups/
+
+# Built-in photo describer (florence.py): 0.8 GB, downloaded on request from Hugging Face
+face-recognizer/models/florence2/
+
+# Everything the tools learn from your photos stays on this computer: faces, names, labels, benchmarks
+face-recognizer/data/

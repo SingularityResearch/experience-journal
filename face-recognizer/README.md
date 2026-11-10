@@ -56,11 +56,13 @@ You need Windows 10 or 11 (64-bit), an internet connection for the first build, 
 3. **Close FaceRecognizer.exe if it's running.** Windows locks a running .exe, so the new one can't be copied over it.
 4. **Double-click `build_app.bat`.** It:
    1. installs the pinned libraries in `requirements-build.txt` (`requirements.txt` plus PyInstaller) into that Python;
-   2. builds a single windowed .exe from `app.py` with PyInstaller. It packs in the page files (`tracker_ui.html`/`.js`, `label_ui.html`/`.js`, `app_ui.html`/`.js`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
+   2. builds a single windowed .exe from `app.py` with PyInstaller (`build_exe.py`, the same script GitHub's build runs). It packs in the page files (`tracker_ui.html`/`.js`, `label_ui.html`/`.js`, `app_ui.html`/`.js`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
    3. copies the result to `face-recognizer\FaceRecognizer.exe` (about 210 MB).
 
    It takes 2–6 minutes. Its work files go in `face-recognizer\build\`. Git ignores that folder and the .exe, and you can delete the folder any time.
 5. **Try it.** Double-click `FaceRecognizer.exe`. Both tabs should be ready in about 10 seconds. If a tab says it couldn't start, the reason and the details are in `%APPDATA%\FaceLabels\app.log`.
+
+Every push to GitHub also builds the .exe on GitHub's Windows machines once the tests pass: the run's **FaceRecognizer-exe** artifact (kept 14 days) holds it and `BUILD-INFO.json` (commit and SHA-256), for testing before a release.
 
 **Rebuild after any change** to a `.py`, `.html` or `.js` file: the .exe carries its own copy of the code and pages. The models and `data\` aren't inside it, so new labels and models need no rebuild.
 

@@ -85,6 +85,9 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
   - `setup.bat` — installs Python 3.12 (winget) and `requirements.txt` (pinned versions; OpenCV as
     `opencv-contrib-python` only, which mediapipe needs; setup removes a plain `opencv-python` if one is installed).
     `requirements-build.txt` adds PyInstaller for `build_app.bat`; `requirements-dev.txt` has pytest and ruff.
+  - `build_exe.py` — the one description of the .exe build (PyInstaller options, page files packed); run by
+    `build_app.bat` here and by CI's `build` job on GitHub's Windows machines, which keeps the .exe 14 days as the
+    `FaceRecognizer-exe` artifact (with BUILD-INFO.json: commit, run, SHA-256).
   - `fetch_models.py` — downloads missing models (or Git LFS placeholders): six from their publishers (OpenCV Zoo on Hugging
     Face, pinned; MediaPipe storage v1; ArcFace's bytes only, by range requests, from InsightFace's `buffalo_l.zip`),
     Wav2Small (and any fallback) from the GitHub Release `models-v1`,
@@ -138,7 +141,7 @@ set PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe
 ```
 
 CI runs all of these. Keep page code in the `.js` files (no inline `<script>` blocks: a test fails on them), and add
-any new page file to its server and to `build_app.bat` (a test checks both). Change a measured threshold only together
+any new page file to its server and to `PAGES` in `build_exe.py` (a test checks both). Change a measured threshold only together
 with `tests/test_thresholds.py`, after re-measuring.
 Test UI changes in the real app or a test copy, never against the owner's running app:
 - The owner's app holds ports 8764-8766. Start a test copy from source on spare ports (tracker/labeling `--port`,

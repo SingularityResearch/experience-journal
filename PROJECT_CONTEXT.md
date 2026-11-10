@@ -16,7 +16,8 @@ never leaves the project's computers.
 | This repository | `SingularityResearch/experience-journal` on GitHub (public, code only) |
 | The face recognizer | `facial-recognition/` here, a git subtree of `SingularityResearch/facial-recognition` (public); changes go there first, then `git subtree pull --prefix=facial-recognition <its path or URL> main` |
 | Participant data | `data/` (not in git), later the hub's SQLite database; the face recognizer's own data in its `data/` and `%APPDATA%\FaceLabels` |
-| Python | 3.12; the fusion needs only numpy |
+| Python | 3.12; the fusion needs only numpy (Windows, macOS, Linux) |
+| Face recognizer builds | its own repository's CI: tests and builds on Windows, macOS (Apple Silicon, 14+) and Linux (Ubuntu 22.04+); releases there (v1.9, 2026-11-10). Build steps: facial-recognition/face-recognizer/README.md, "Building the app" |
 | Test builds | CI's `experience-journal-bundle` artifact (14 days); installed by `deploy/deploy_local.ps1` into `%LOCALAPPDATA%\ExperienceJournal\test` (builds, Start.cmd, its own face-root and face-home), Start menu **Experience Journal (test)** |
 
 ## 3. The fusion engine (`fusion/`)
@@ -70,6 +71,9 @@ The simulator follows the model's assumptions, so real data will do worse.
   alert inbox with event types, timings and the evidence each alert measured).
 - 2026-11-09: both repositories public; CI builds FaceRecognizer.exe (face recognizer) and the combined bundle
   (journal) after the checks pass; `deploy/deploy_local.ps1` installs green builds locally for hands-on testing.
+- 2026-11-10: the face recognizer runs on macOS and Linux (per-system folders, browser fallback, CI on all three);
+  tested on a real Ubuntu 26.04 laptop (window, camera, tracking, face mesh; mesh made easier to see) and released
+  as v1.9 for Windows, macOS (not yet Apple-signed) and Linux.
 
 ## 7. Next
 
@@ -78,3 +82,5 @@ The simulator follows the model's assumptions, so real data will do worse.
 2. The face recognizer's opt-in signal output (in its own repository) and the journal's connector that reads it.
 3. The engine rebuilt from stored samples, estimates stored with their contributions, the Why view from them.
 4. Check-ins page and the first real data; then re-measure every guess above on held-out weeks.
+5. Cross-platform test deploys (the in-app updater instead of `deploy_local.ps1` and its scheduled task), and the
+   Apple signing secrets so the macOS build is signed and notarized.

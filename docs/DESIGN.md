@@ -51,7 +51,7 @@ the journal when that's switched on; it never depends on the journal.
 ```
  devices (opt-in "sensor agents")                      hub (local PC)
  ┌──────────────────────────────┐                     ┌──────────────────────────────────────────┐
- │ PC: face recognizer tracker  │──numbers──┐         │ ingest  → timeline store (SQLite)          │
+ │ PC/Mac/Linux: face recognizer│──numbers──┐         │ ingest  → timeline store (SQLite)          │
  │ PC/Mac/Linux: browser ext.   │──content──┤  paired │ baselines (per person, per situation)     │
  │ phone: check-ins, screen time│──────────►├─ token ─►│ fusion  (explainable, multi-window)       │
  │ watch/ring: HR, HRV, sleep   │──────────►│ (LAN)   │ patterns, predictions (later)              │
@@ -75,7 +75,9 @@ the journal when that's switched on; it never depends on the journal.
   from different devices line up to within about a second.
 - **Security:** the hub accepts data only from paired devices (a per-device token), only from the local network; the
   browser UI only from this computer (same request checks as the face recognizer: Host, custom header, Origin).
-  Data folder in `.gitignore`; encryption at rest via BitLocker on the hub's drive.
+  Data folder in `.gitignore`; encryption at rest on the hub's drive (BitLocker, FileVault or LUKS).
+- **Platforms:** the hub (standard-library Python, SQLite, plain HTML/JS) and its connectors run on Windows, macOS and
+  Linux, like the face recognizer (v1.9: Windows, macOS 14+ on Apple Silicon, Ubuntu 22.04+).
 
 ## 4. Data model (first version)
 

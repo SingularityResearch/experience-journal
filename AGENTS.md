@@ -26,7 +26,9 @@ Read [docs/DESIGN.md](docs/DESIGN.md) first: principles, architecture, data mode
 
 ## Development
 
-Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`), standard library server, SQLite, plain HTML/JS.
+Python 3.12 (on this Windows PC `%LOCALAPPDATA%\Programs\Python\Python312\python.exe`; on macOS and Linux a `.venv`),
+standard library server, SQLite, plain HTML/JS. Everything must keep working on Windows, macOS and Linux, as the face
+recognizer does (its `paths.py` and `desktop.py` show how: per-system folders, no Windows-only calls outside one place).
 Tests from the start: `python -m pytest tests -q` and `python -m ruff check .` (CI runs both); browser code later with
 `node --test tests/*.test.js`.
 

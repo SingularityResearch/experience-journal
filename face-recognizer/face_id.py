@@ -41,10 +41,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import paths
+
 HERE = Path(__file__).resolve().parent
 # models/ and data/ sit beside the code, or beside FaceRecognizer.exe when built (app.py): the .exe
 # carries only the code and pages, and shares this folder's models and data with the .bat launchers
-ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else HERE
+ROOT = paths.ROOT                # FACE_ROOT=<folder> uses another (tests)
 MODELS = ROOT / "models"
 DATA = ROOT / "data"
 DET_MODEL = MODELS / "face_detection_yunet_2023mar.onnx"
@@ -80,7 +82,7 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi", ".mkv"}
 MAX_SIDE = 1280          # photos are shrunk to this before detection (speed)
 # Webcam snapshots the tracker saves for labeling (its "Collect faces" option), with a .json beside each
 # saying who the tracker thought each face was. Outside the project; the labeling tool imports them.
-WEBCAM = Path(os.environ.get("APPDATA", Path.home())) / "FaceLabels" / "webcam"
+WEBCAM = paths.HOME / "webcam"
 DET_SCORE = 0.85         # detector confidence needed to keep a face
 MIN_FACE = 40            # px, smaller faces are too blurry to recognise reliably
 Q_ENROLL = 0.30          # faces below this eDifFIQA quality are not used to learn a person
@@ -136,8 +138,23 @@ def active_model():
     raise NotDownloaded(f"No face recognition model found in {MODELS}. Run: python fetch_models.py")
 
 
-check_downloaded()
-REC_NAME = active_model()
+# Checked when a program starts (require_models), not here: importing this module must work without the models
+# (tests, CI), and a missing model should stop a program with a message that says what to do.
+try:
+    check_downloaded()
+    REC_NAME = active_model()
+    _not_ready = None
+except NotDownloaded as e:
+    REC_NAME, _not_ready = next(iter(REC_MODELS)), e
+
+
+def require_models():
+    """Stop with NotDownloaded (what to run) when the models or data files are missing or Git LFS placeholders.
+    Every program calls this before loading anything; library code that only reads data doesn't need to."""
+    if _not_ready is not None:
+        raise _not_ready
+
+
 REC = REC_MODELS[REC_NAME]
 MATCH = REC["match"]
 CLUSTER_DIST = REC["cluster"]
@@ -388,7 +405,7 @@ class Faces:
         rows.sort(key=lambda r: -r[14])
         kept = []
         for r in rows:                         # drop duplicates found at both sizes
-            if all(_iou(r, k) < 0.4 for k in kept):
+            if all(iou(r, k) < 0.4 for k in kept):
                 kept.append(r)
         out = []
         for row in kept:
@@ -504,7 +521,8 @@ def _has_module(name):
     return importlib.util.find_spec(name) is not None
 
 
-def _iou(a, b):
+def iou(a, b):
+    """Overlap of two face boxes (x, y, w, h): intersection over union."""
     x1, y1 = max(a[0], b[0]), max(a[1], b[1])
     x2, y2 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
     inter = max(0, x2 - x1) * max(0, y2 - y1)
@@ -603,13 +621,13 @@ def video_faces(faces, path, stop=None):
     away, the face print alone often doesn't match), else face prints at least MATCH alike (the
     recognizer's own setting). Returns (fps, [(frame number, row, emb, crop, q)])."""
     people, fps, prev = [], 30.0, None           # [their face prints, [(k, row, emb, crop, q)]]
-    for k, fps, frame in video_frames(path, stop):
+    for k, fps, frame in video_frames(path, stop):     # noqa: B007 (fps is returned after the loop)
         taken = set()                             # one face per person per frame
         for row, emb, crop, q in faces.detect(frame):
             best, best_s = None, 0.3              # 1. followed: same place as in the previous frame
             for n, p in enumerate(people):
                 last_k, last_row = p[1][-1][0], p[1][-1][1]
-                if n not in taken and last_k == prev and (s := _iou(row, last_row)) >= best_s:
+                if n not in taken and last_k == prev and (s := iou(row, last_row)) >= best_s:
                     best, best_s = n, s
             if best is None:                      # 2. recognized: alike any face of theirs seen so far
                 best_s = MATCH
@@ -764,15 +782,7 @@ class Store:
         save_json("photos.json", self.photos)
 
 
-def replace_file(tmp, dest, tries=20):
-    """os.replace, retrying briefly: on Windows it fails while another program is reading dest."""
-    for k in range(tries):
-        try:
-            return os.replace(tmp, dest)
-        except PermissionError:
-            if k == tries - 1:
-                raise
-            time.sleep(0.05)
+replace_file = paths.replace_file      # os.replace with retries (Windows: dest briefly open elsewhere)
 
 
 def load_json(name, default):
@@ -781,9 +791,7 @@ def load_json(name, default):
 
 
 def save_json(name, obj):
-    tmp = DATA / (name + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=1), "utf-8")
-    replace_file(tmp, DATA / name)        # never leave a half-written file
+    paths.atomic_write(DATA / name, json.dumps(obj, indent=1))     # never leave a half-written file
 
 
 REBUILD_IOU = 0.6                 # a face found again must cover its saved box this well
@@ -1060,7 +1068,7 @@ def run_video(faces, ident, f):
         n += 1
         if n % 10:
             continue                      # every 10th frame is plenty
-        for row, emb, *_ in faces.detect(frame):
+        for _row, emb, *_ in faces.detect(frame):
             name, _ = ident.who(emb)
             seen[name] = seen.get(name, 0) + 1
     cap.release()
@@ -1140,6 +1148,7 @@ def run_camera(faces, ident, index):
 
 # --------------------------------------------------------------------------- cli
 def main():
+    require_models()
     p = argparse.ArgumentParser(description="Recognize specific people from your photos.")
     sub = p.add_subparsers(dest="cmd", required=True)
 

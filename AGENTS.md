@@ -21,16 +21,24 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
 - `face-tracker/index.html` — original standalone MediaPipe tracker; double-click to open.
 - `face-recognizer/` — the Python project. All programs share `face-recognizer/data/`:
   - `face_id.py` — core library + CLI (`scan`, `cluster`, `name`, `people`, `recognize`, `reembed`, `migrate`).
-  - `labels.py` — labeling engine: per-face labels (`LabelDB`), background photo/video `Importer`
-    (videos: `face_id.video_faces`, ~1 frame/s, each person followed and their 3 clearest faces kept; frame numbers in
-    `photos.json` `at`), `relocate` (finds photos that moved, e.g. a changed drive letter, at start),
-    auto-naming, duplicate-photo detection, undo history, `PhotoFacts` (camera dates + people tags, saved in `data/photo_facts.json`)
-    and clues for unnamed faces (`hints`: closest people, photo tags, same occasion).
+  - `paths.py` — `ROOT` (models\ and data\; `FACE_ROOT` overrides), `HOME` (`%APPDATA%\FaceLabels`; `FACE_HOME`
+    overrides), `atomic_write`/`replace_file`. Every module takes its folders from here.
+  - `labels.py` — labeling engine: per-face labels (`LabelDB`), auto-naming, duplicate-photo detection, undo history
+    and clues for unnamed faces (`hints`: closest people, photo tags, same occasion). The rest of the engine is split
+    into modules that `labels` re-exports (`labels.X` still works):
+    - `photofiles.py` — content hashes, picture fingerprints, online-only cloud files, camera dates, photo folders.
+    - `photofacts.py` — `PhotoFacts`: camera dates + people tags (XMP, Google Takeout), saved in `data/photo_facts.json`.
+    - `relocate.py` — `migrate` (one-time upgrade to per-face labels) and `relocate` (finds photos that moved, e.g. a
+      changed drive letter, at start).
+    - `importer.py` — background photo/video `Importer` (videos: `face_id.video_faces`, ~1 frame/s, each person
+      followed and their 3 clearest faces kept; frame numbers in `photos.json` `at`); one job at a time
+      (`Importer.begin`); unreadable files kept with the reason (`note_problem`, shown by the page's **Why?**).
     Possible faces: each photo is also read with a low detector cut-off (`Importer.MORE_SCORE` 0.45, 4 sizes; sampled,
     not measured for accuracy); those faces are marked in `photos.json` `maybe` and listed apart from New faces.
-  - `label_tool.py` + `label_ui.html` / `label.bat` — labeling web app on `http://127.0.0.1:8765`.
+  - `label_tool.py` + `label_ui.html` (layout) + `label_ui.js` (script) / `label.bat` — labeling web app on
+    `http://127.0.0.1:8765`.
     The owner calls this "the recognizer".
-  - `tracker.py` + `tracker_ui.html` / `recognize.bat` — live tracker on `http://127.0.0.1:8766`.
+  - `tracker.py` + `tracker_ui.html` + `tracker_ui.js` / `recognize.bat` — live tracker on `http://127.0.0.1:8766`.
     Its **Collect faces** option saves webcam snapshots + the tracker's verdict to `%APPDATA%\FaceLabels\webcam\`
     (`face_id.WEBCAM`); `label_tool.py` imports them by itself and shows the verdict as a clue.
   - `expression.js` — expression voting, state model, confidence flags, evidence, per-person usual look (browser;
@@ -40,8 +48,8 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     feeling-report summaries, fitted valence/arousal (browser; served by `tracker.py`; tests in `tests/`).
   - `app.py` / `build_app.bat` → `FaceRecognizer.exe` — one window (pywebview, WebView2) with Face tracking,
     Labeling and Settings tabs; starts both servers in one process (`tracker.bind/attach`, `label_tool.attach`), each
-    still on its own port and page. The tab page itself (`SHELL`, HTML/CSS/JS in a Python string) is served on
-    `127.0.0.1:8764` (`/status`, `/update`, `/open-release`, `/paths`, `/open`). PyInstaller one-file build; uses
+    still on its own port and page. The tab page itself (`app_ui.html` + `app_ui.js`, `{{VERSION}}` filled in) is
+    served on `127.0.0.1:8764` (`/status`, `/update`, `/open-release`, `/paths`, `/open`). PyInstaller one-file build; uses
     `models\` and `data\` beside the .exe (`face_id.ROOT`); `VERSION` in `app.py` is the release number.
   - `websearch.py` — the labeling tool's **Web search**: Amazon Rekognition celebrity recognition + Google Cloud Vision web detection, combined into suggestions with a confidence level (on click only; US services, English results, each capped under $10/month; keys in `%APPDATA%\FaceLabels`, never in the repo).
   - `describe.py` — the labeling tool's **Describe photo**: a vision model in LM Studio on this computer
@@ -57,10 +65,12 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     postMessage; each page lists its own (`SettingsBridge.init` at the end of its script) and applies changes through
     its own controls (`SettingsBridge.control(id, section)`) or its own get/set and actions. Served by both servers.
     Setting types: toggle, range, select, text, multi, info, button, form. The tab owns no settings itself.
-  - `localguard.py` — request checks for both local servers (Host, `X-Face-Tool: 1`, Origin).
+  - `localguard.py` — what the three servers share: request checks (Host, `X-Face-Tool: 1`, Origin), the `Handler`
+    base class (quiet, `send`/`send_json`, `refused`, framing headers, uncaught errors answered with a JSON 500;
+    subclasses define `_get`/`_post`) and `bind` (no port sharing on Windows).
   - `setup.bat` — installs Python 3.12 (winget) and `requirements.txt` (pinned versions; OpenCV as
     `opencv-contrib-python` only, which mediapipe needs; setup removes a plain `opencv-python` if one is installed).
-    `requirements-build.txt` adds PyInstaller for `build_app.bat`.
+    `requirements-build.txt` adds PyInstaller for `build_app.bat`; `requirements-dev.txt` has pytest and ruff.
   - `fetch_models.py` — downloads missing models (or Git LFS placeholders): six from their publishers (OpenCV Zoo on Hugging
     Face, pinned; MediaPipe storage v1; ArcFace's bytes only, by range requests, from InsightFace's `buffalo_l.zip`),
     Wav2Small (and any fallback) from the GitHub Release `models-v1`,
@@ -73,8 +83,12 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     `pose_landmarker_lite.task` (MediaPipe body posture, optional).
   - `tools/` — `eval_models.py`, `hw_bench.py`, `expr_check.py`, `expr_eval.py`, `get_adaface.py`, `get_wav2small.py`, `import_bench.py`, `websearch_check.py`, `webcam_eval.py` (live naming on confirmed webcam snapshots; measured the
     averaged-print rule the tracker uses via `/api/who`).
-  - `tests/` — Node unit tests for `expression.js` and `signals.js` (30). There are no Python tests yet.
-  - `.github/workflows/checks.yml` — CI on every push/PR: `node --test tests` and pyflakes (no LFS).
+  - `tests/` — Node tests (`*.test.js`: `expression.js`, `signals.js`, `settings_bridge.js`, every page script parses
+    and is served and packed) and Python tests (`test_*.py`, pytest: request checks, describe settings and where
+    photos/keys go, Web search keys and caps, the model download against a local server, labeling and undo, the
+    face-picture migration, the empty new-user start, and a tripwire on the measured thresholds). `conftest.py`
+    points `FACE_ROOT`/`FACE_HOME` at a temp folder before anything is imported: no models, no real data.
+  - `.github/workflows/checks.yml` — CI on every push/PR: Node tests, ruff, pyflakes and pytest (no LFS, no models).
 
 ## Running
 
@@ -93,20 +107,23 @@ Use the Python 3.12 the .bat files pick (`%LOCALAPPDATA%\Programs\Python\Python3
 
 ```
 cd face-recognizer
-node --test tests                                   # JS unit tests
-%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m pyflakes *.py tools\*.py
+node --test tests                                   # browser code and page scripts
+set PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe
+%PY% -m ruff check .                                 # ruff.toml; pyflakes rules plus likely bugs
+%PY% -m pytest tests -q                              # Python tests (requirements-dev.txt)
 ```
 
-CI runs the same two. The inline scripts in `tracker_ui.html`, `label_ui.html` and `app.py` (`SHELL`) aren't checked
-by CI: after editing them, at least parse each `<script>` block (for example `new Function(code)` in Node).
+CI runs all of these. Keep page code in the `.js` files (no inline `<script>` blocks: a test fails on them), and add
+any new page file to its server and to `build_app.bat` (a test checks both). Change a measured threshold only together
+with `tests/test_thresholds.py`, after re-measuring.
 Test UI changes in the real app or a test copy, never against the owner's running app:
 - The owner's app holds ports 8764-8766. Start a test copy from source on spare ports (tracker/labeling `--port`,
   or `app.start` with a port offset), with `APPDATA` pointed at a temp folder and `face_id.DATA` at an empty or copied
   folder, so it can't touch the real `data/` or `%APPDATA%\FaceLabels`.
 - Headless Edge over CDP works for page checks. Kill leftover `msedge --remote-debugging-port` processes first:
   an old one keeps old tabs (and their errors) alive.
-- Importing `face_id` stops with `NotDownloaded` when the models are missing (CI has none), so modules that import
-  it can't be unit-tested in CI yet.
+- Importing `face_id` works without models; each program calls `face_id.require_models()` when it starts, which
+  stops with `NotDownloaded` (what to run) if they're missing.
 
 ## Security rules
 

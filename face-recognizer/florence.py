@@ -19,19 +19,19 @@ The tokenizer (BART's byte-level BPE) is written out below, so nothing beyond on
 """
 import hashlib
 import json
-import os
 import re
-import sys
 import threading
 import time
 import urllib.request
 from pathlib import Path
 
+import paths
+
 import cv2
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else HERE   # as face_id.ROOT
+ROOT = paths.ROOT                 # as face_id.ROOT
 DIR = ROOT / "models" / "florence2"
 NAME = "Florence-2 large (built-in)"
 REPO = "onnx-community/Florence-2-large-ft"
@@ -91,7 +91,7 @@ def download():
                         st["done"] += len(chunk)
                 if h.hexdigest() != sha:
                     raise OSError(f"{name} downloaded, but it isn't the expected file (checksum differs)")
-                os.replace(tmp, dest)
+                paths.replace_file(tmp, dest)
             except Exception:
                 tmp.unlink(missing_ok=True)
                 st["done"] = start

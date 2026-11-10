@@ -22,11 +22,12 @@ import re
 import threading
 import time
 import urllib.parse
-from pathlib import Path
+
+import paths
 
 UA = "FaceLabels/1.0 (local photo labeling tool)"
 TIMEOUT = 30
-HOME = Path(os.environ.get("APPDATA", Path.home())) / "FaceLabels"
+HOME = paths.HOME                # %APPDATA%\FaceLabels
 KEY_FILE = HOME / "google_vision_key.txt"
 AWS_FILE = HOME / "aws_rekognition.json"
 # searches per calendar month, so each bill stays under the owner's $10/month (2026-11-01 prices):
@@ -51,7 +52,7 @@ def save_key(k):
         raise ValueError("That doesn't look like a Google API key")
     if k:
         KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        KEY_FILE.write_text(k, "utf-8")
+        paths.atomic_write(KEY_FILE, k)
     elif KEY_FILE.exists():
         KEY_FILE.unlink()
 
@@ -79,7 +80,7 @@ def save_aws(key_id, secret, region="us-east-1"):
     if not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", region):
         raise ValueError("That doesn't look like an AWS region (for example us-east-1)")
     AWS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    AWS_FILE.write_text(json.dumps({"access_key_id": key_id, "secret_access_key": secret, "region": region}), "utf-8")
+    paths.atomic_write(AWS_FILE, json.dumps({"access_key_id": key_id, "secret_access_key": secret, "region": region}))
 
 
 def services():
@@ -107,7 +108,7 @@ def _count(service):
         if u["used"] >= u["cap"]:
             raise ValueError(f"{service} limit reached: {u['cap']} searches this month (keeps the bill under $10)")
         HOME.mkdir(parents=True, exist_ok=True)
-        (HOME / f"{service}_usage.json").write_text(json.dumps({"month": u["month"], "used": u["used"] + 1}), "utf-8")
+        paths.atomic_write(HOME / f"{service}_usage.json", json.dumps({"month": u["month"], "used": u["used"] + 1}))
 
 
 def english(s):

@@ -52,22 +52,26 @@ X:\source\facial-recognition\
 │   └── index.html
 └── face-recognizer\              the Python project (everything below shares one data\ folder)
     ├── face_id.py                core library + CLI: scan / cluster / name / people / recognize / reembed / migrate
-    ├── labels.py                 labeling engine: LabelDB (per-face labels, undo), Importer (background scan)
+    ├── paths.py                  ROOT/HOME (FACE_ROOT/FACE_HOME overrides), atomic_write
+    ├── labels.py                 labeling engine: LabelDB (per-face labels, undo); re-exports the four below
+    ├── photofiles.py, photofacts.py, relocate.py, importer.py   hashes/cloud files; dates/tags; upgrade/moved
+    │                             photos; background import (split out of labels.py 2026-11-09)
     ├── label_tool.py             labeling web app  → http://127.0.0.1:8765   (launch: label.bat)
-    ├── label_ui.html             labeling page (served by label_tool.py)
+    ├── label_ui.html, label_ui.js   labeling page and its script (served by label_tool.py)
     ├── tracker.py                live tracker server → http://127.0.0.1:8766 (launch: recognize.bat)
-    ├── tracker_ui.html           live tracker page (served by tracker.py)
+    ├── tracker_ui.html, tracker_ui.js   live tracker page and its script (served by tracker.py)
     ├── expression.js             expression vote, state model, usual looks, evidence (browser; tests\)
     ├── signals.js                motion, talking, blinks, gaze, timing, pulse, voice, VA fit (browser; tests\)
     ├── settings_bridge.js        the app's Settings tab <-> each page's settings (postMessage; served by both servers)
-    ├── app.py                    FaceRecognizer.exe: one window, three tabs (Face tracking, Labeling, Settings); shell on 8764
+    ├── app.py, app_ui.html, app_ui.js   FaceRecognizer.exe: one window, three tabs (Face tracking, Labeling,
+    │                             Settings); the tab page on 8764
     ├── build_app.bat             PyInstaller one-file build of app.py → FaceRecognizer.exe
     ├── websearch.py              Web search: Amazon Rekognition + Google Cloud Vision (on click; own keys in %APPDATA%)
     ├── describe.py               Describe photo: LM Studio or any OpenAI-style server (Settings), else florence.py
     ├── florence.py               built-in Florence-2 large describer (ONNX int8, CPU; 0.8 GB on request)
     ├── fetch_models.py           first-start model download from the publishers, models-v1 as fallback; SHA-256
     ├── localguard.py             refuse_reason(): request checks shared by both servers
-    ├── tests\                    Node tests for expression.js and signals.js
+    ├── tests\                    Node tests (*.test.js) and Python tests (test_*.py, pytest); ruff.toml
     ├── setup.bat                 installs Python 3.12 via winget, then pip installs requirements.txt
     ├── recognize.bat             starts tracker.py (checks cv2/numpy are installed first)
     ├── label.bat                 starts label_tool.py
@@ -572,20 +576,24 @@ Still open (security, low): consider refusing `Sec-Fetch-Site: cross-site` in `l
 load `/thumb` and `/photo` as images and learn that the app runs and how many faces it has, though not see them);
 keys in plain files (DPAPI possible); a committed PyInstaller spec file.
 
-Structure and tests:
-9. Importing `face_id` checks the models and exits (`NotDownloaded`), so nothing that imports it can be tested in CI.
-   Check in the entry points instead (or a `FACE_ROOT` override), then add pytest for: `localguard`,
-   `describe.clean_url/where/set_config`, `websearch` key checks and caps, `fetch_models` zip/range download with a
-   local server, `LabelDB` act/undo/rename and the thumbnails migration on a tiny synthetic `data/`, the empty-`data/`
-   new-user path. Add a test that pins the measured thresholds.
-10. CI: also parse the inline scripts (`node --check` on extracted `<script>` blocks) and `settings_bridge.js`; add
-    ruff with a committed config (line length 120); later, move the inline page scripts and the `app.py` SHELL page
-    into their own files.
-11. Large modules: `labels.py` (1,750 lines: file utilities, XMP/Takeout, relocate/migrate, LabelDB, Importer) and
-    `label_tool.make_handler` (one ~400-line function). Split, and give the three servers one small shared handler
-    base with a route table. `%APPDATA%\FaceLabels` is defined in four modules and atomic writes in four versions:
-    one `paths.py`, one `atomic_write`.
-12. Import and describe errors are counted but not recorded: keep the last few (file, reason) and show them.
+Structure and tests: done the same evening (branch `v1.8-quality`):
+- **Tests:** `face_id` no longer stops on import without models (programs call `require_models()`); `paths.py`
+  gives one `ROOT`/`HOME` with `FACE_ROOT`/`FACE_HOME` overrides and one `atomic_write`. 64 pytest tests (request
+  checks, describe settings, key never sent elsewhere, redirects, Web search keys and caps under 20 parallel
+  searches, model download from a local range-request server and fallback, labeling/undo/rename, face-picture
+  migration and matching by ID, empty new-user start, error records, threshold tripwire) and 41 Node tests (now
+  also the Settings bridge's origin checks, and that every page script parses and is served and packed). Writing
+  them found two bugs, fixed: saving Amazon keys broke in the refactor (caught before any commit) and
+  `clean_url("http://")` was accepted.
+- **CI:** Node tests, ruff (`ruff.toml`: E, F, W, B; long lines not enforced), pyflakes and pytest, no LFS;
+  pinned Linux packages checked to exist.
+- **Structure:** `labels.py` 1,750 → 775 lines (`photofiles.py`, `photofacts.py`, `relocate.py`, `importer.py`,
+  re-exported); one `face_id.iou`; the servers share `localguard.Handler`; the tab page left the Python string
+  (`app_ui.html`/`.js`) and the page scripts left the HTML (`tracker_ui.js`, `label_ui.js`).
+- **Error records:** imports and Describe all keep the last 20 unreadable files with the reason; **Why?** shows them.
+
+Still open (structure): `label_tool.make_handler` is still one long function (its helpers and routes share
+the database through a closure); splitting it into a class with route methods is the next step if it keeps growing.
 
 - Record more posed sessions (now with the talking and "chin on hand" steps) and feeling reports; then
   decide on `TALK_JAW_SD`, the talking and hand gates, the state model and any cue fusion from

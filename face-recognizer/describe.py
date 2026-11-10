@@ -27,13 +27,13 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from urllib.parse import urlparse
 
 import florence
+import paths
 
 URL = os.environ.get("FACE_LLM_URL", "http://127.0.0.1:1234").rstrip("/")    # the default server
-HOME = Path(os.environ.get("APPDATA", Path.home())) / "FaceLabels"
+HOME = paths.HOME                # %APPDATA%\FaceLabels
 STORE = HOME / "descriptions.json"
 CONFIG = HOME / "describe.json"  # the Settings tab's choices: {"use", "url", "model", "key"}
 USES = ("auto", "server", "builtin")   # server if it answers, else built-in / the server only / the built-in model only
@@ -66,16 +66,17 @@ def config():
 
 def clean_url(url):
     """'host:port', 'http://host:port/v1/' ... -> 'http://host:port'. Raises ValueError."""
-    url = (url or "").strip().rstrip("/")
+    url = (url or "").strip()
     if url and "://" not in url:
         url = "http://" + url
+    url = url.rstrip("/")
     if url.endswith("/v1"):
         url = url[:-3]
     u = urlparse(url)
     if u.scheme not in ("http", "https") or not u.hostname:
         raise ValueError("That isn't a server address: use one like http://127.0.0.1:1234 or http://192.168.1.20:1234")
     try:
-        u.port
+        _ = u.port                              # reading it checks it (number, 0-65535)
     except ValueError:
         raise ValueError("The port in that address isn't a number") from None
     return url
@@ -97,18 +98,8 @@ def set_config(**kw):
         c["model"] = str(kw["model"] or "").strip()[:200]
     if "key" in kw:
         c["key"] = str(kw["key"] or "").strip()[:500]
-    CONFIG.parent.mkdir(parents=True, exist_ok=True)
     with _cfg_lock:
-        tmp = CONFIG.with_suffix(".tmp")
-        tmp.write_text(json.dumps(c, indent=1), "utf-8")
-        for attempt in range(20):               # something else (antivirus, backup) may have it open a moment
-            try:
-                os.replace(tmp, CONFIG)
-                break
-            except PermissionError:
-                if attempt == 19:
-                    raise
-                time.sleep(0.05)
+        paths.atomic_write(CONFIG, json.dumps(c, indent=1))
     return c
 
 
@@ -326,10 +317,7 @@ def flush():
 
 
 def _write(s):
-    STORE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STORE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(s, ensure_ascii=False, indent=0), "utf-8")
-    os.replace(tmp, STORE)
+    paths.atomic_write(STORE, json.dumps(s, ensure_ascii=False, indent=0))
 
 
 def count():

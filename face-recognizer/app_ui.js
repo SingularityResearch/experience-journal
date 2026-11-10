@@ -1,0 +1,203 @@
+// app_ui.js - the app window's tab page (app_ui.html, served by app.py): switching tabs, start-up status,
+// Check for updates, and the Settings tab, which asks each program's page for its settings
+// (settings_bridge.js) and sends changes back.
+let current = "track";
+function show(k) {
+  current = k;
+  for (const t of ["track", "label", "set"]) document.getElementById("tab-" + t).setAttribute("aria-selected", t === k);
+  for (const t of ["track", "label"])
+    document.getElementById("f-" + t).classList.toggle("on", t === k && !!document.getElementById("f-" + t).src);
+  const f = document.getElementById("f-" + k);
+  document.getElementById("settings").hidden = k !== "set";
+  document.getElementById("wait").hidden = k === "set" || !!f.src;
+  if (k === "set") askAll(); else if (f.src) f.focus();
+  try { localStorage.setItem("tab", k); } catch {}
+}
+try { const t = localStorage.getItem("tab"); if (t === "label" || t === "set") current = t; } catch {}
+const errors = {};
+async function poll() {                          // each program's URL once it's serving, or why it failed
+  let st = {};
+  try { st = await (await fetch("/status", { cache: "no-store" })).json(); } catch {}
+  for (const k of ["track", "label"]) {
+    const f = document.getElementById("f-" + k), s = st[k] || {};
+    if (s.url && !f.src) { f.src = s.url; document.getElementById("st-" + k).textContent = ""; }
+    if (s.error) { errors[k] = s.error; document.getElementById("st-" + k).textContent = "failed"; }
+  }
+  show(current);
+  const w = document.getElementById("wait");
+  if (current !== "set" && errors[current]) { w.className = "wait err"; w.textContent = errors[current]; }
+  else {
+    w.className = "wait";
+    w.textContent = st.fetch   // first start of a downloaded copy: the models come from the project's GitHub Release
+      ? `Downloading the face models (first start only): ${Math.round(st.fetch.done / 1e6)} of ${Math.round(st.fetch.total / 1e6)} MB`
+      : "Loading the face models…";
+  }
+  if (!["track", "label"].every(k => document.getElementById("f-" + k).src || errors[k])) setTimeout(poll, 400);
+}
+poll();
+addEventListener("keydown", e => {               // Ctrl+1 / Ctrl+2 / Ctrl+3 switch tabs
+  const t = { "1": "track", "2": "label", "3": "set" }[e.key];
+  if (e.ctrlKey && t) { show(t); e.preventDefault(); }
+});
+async function checkUpdate() {
+  const bs = ["upd", "upd2"].map(id => document.getElementById(id)), say = t => bs.forEach(b => b.textContent = t);
+  say("Checking…");
+  try {
+    const r = await (await fetch("/update", { cache: "no-store", headers: { "X-Face-Tool": "1" } })).json();
+    if (r.error) say("Couldn't check");
+    else if (r.newer) { say(`${r.latest} is available: open the download page`); bs.forEach(b => b.onclick = () => fetch("/open-release", { headers: { "X-Face-Tool": "1" } })); }
+    else say("Up to date");
+  } catch { say("Couldn't check"); }
+}
+
+// ---------------------------------------------------------------- Settings tab
+// The tracker's and the labeling tool's settings live in their own pages (their controls, their browser storage,
+// their servers), so this tab asks each page for them (settings_bridge.js, over postMessage) and sends changes back.
+const NAMES = { track: "Face tracking", label: "Labeling" }, STATE = { track: null, label: null }, waiting = {};
+let rid = 0;
+const frame = k => document.getElementById("f-" + k);
+const originOf = k => { try { return new URL(frame(k).src).origin; } catch { return null; } };
+function tell(k, msg) { const o = originOf(k); if (o && frame(k).contentWindow) frame(k).contentWindow.postMessage(msg, o); }
+function askAll() { for (const k of ["track", "label"]) tell(k, { fs: "get" }); drawPrograms(); }
+function act(k, id, args) {
+  return new Promise(res => { const r = ++rid; waiting[r] = res; tell(k, { fs: "act", id, args, rid: r });
+    setTimeout(() => { if (waiting[r]) { delete waiting[r]; res({ ok: false, error: "No answer" }); } }, 30000); });
+}
+addEventListener("message", e => {
+  const k = ["track", "label"].find(k => frame(k).contentWindow === e.source && originOf(k) === e.origin);
+  const m = e.data;
+  if (!k || !m) return;
+  if (m.fs === "state") { STATE[k] = m.items; drawPrograms(); }
+  if (m.fs === "result" && waiting[m.rid]) { waiting[m.rid](m); delete waiting[m.rid]; }
+});
+const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids.filter(x => x != null)); return n; };
+// One row per setting; rows are made once and then only updated, so typing and dragging aren't interrupted
+function makeRow(k, it) {
+  const key = k + ":" + it.id, row = el("div", { className: "row" }), ctl = el("div", { className: "ctl" });
+  row.dataset.key = key;
+  const lab = el("label", { textContent: it.label, htmlFor: "s-" + key });
+  if (it.type === "toggle") {
+    const c = el("input", { type: "checkbox", id: "s-" + key });
+    c.onchange = () => tell(k, { fs: "set", id: it.id, value: c.checked });
+    ctl.append(c);
+  } else if (it.type === "range") {
+    const r = el("input", { type: "range", id: "s-" + key, min: it.min, max: it.max, step: it.step }), o = el("output");
+    const dp = String(it.step).includes(".") ? String(it.step).split(".")[1].length : 0;
+    r.oninput = () => { o.value = (+r.value).toFixed(dp); tell(k, { fs: "set", id: it.id, value: +r.value }); };
+    r.dataset.dp = dp; ctl.append(r, o);
+  } else if (it.type === "select") {
+    const sel = el("select", { id: "s-" + key });
+    sel.onchange = () => tell(k, { fs: "set", id: it.id, value: sel.value });
+    ctl.append(sel);
+  } else if (it.type === "text") {
+    const t = el("input", { type: "text", id: "s-" + key, autocomplete: "off" });
+    t.onchange = () => tell(k, { fs: "set", id: it.id, value: t.value });
+    ctl.append(t);
+  } else if (it.type === "multi") {                // several of a list: a box of checkboxes with a filter
+    const find = el("input", { type: "text", placeholder: "Find…", autocomplete: "off", ariaLabel: "Find in " + it.label });
+    const count = el("span", { className: "msg" }), none = el("button", { className: "b", type: "button", textContent: "Clear" });
+    const box = el("div", { className: "box", id: "s-" + key, role: "group", ariaLabel: it.label });
+    const send = () => { const v = [...box.querySelectorAll("input:checked")].map(c => c.value);
+      count.textContent = `${v.length} selected`; box.querySelectorAll("label").forEach(l => l.classList.toggle("sel", l.firstChild.checked));
+      tell(k, { fs: "set", id: it.id, value: v }); };
+    box.onchange = send;
+    none.onclick = () => { box.querySelectorAll("input").forEach(c => c.checked = false); send(); };
+    box._filter = () => {                          // as you type: only the names containing it
+      const q = find.value.trim().toLowerCase();
+      let shown = 0;
+      box.querySelectorAll("label").forEach(l => { l.hidden = !!q && !l.firstChild.value.toLowerCase().includes(q); shown += !l.hidden; });
+      box.querySelector(".none")?.remove();
+      if (!shown) box.append(el("div", { className: "none", textContent: "Nobody by that name" }));
+      box.scrollTop = 0;
+    };
+    find.oninput = box._filter;
+    find.onkeydown = e => { if (e.key === "Escape") { find.value = ""; box._filter(); } };
+    ctl.append(el("div", { className: "multi" }, el("div", { className: "top" }, find, count, none), box));
+    box._count = count;
+  } else if (it.type === "info") {
+    ctl.append(el("span", { className: "info", id: "s-" + key }));
+  } else if (it.type === "button" || it.type === "form") {
+    const inputs = (it.fields || []).map(f => el("input", { type: f.secret ? "password" : "text", placeholder: f.placeholder || "",
+      autocomplete: "off", ariaLabel: f.placeholder || f.name, size: f.size || 20, style: f.size ? "flex:0 0 auto" : "" }));
+    const b = el("button", { className: "b", id: "s-" + key, type: "button" }), msg = el("span", { className: "msg" });
+    b.onclick = async () => {
+      b.disabled = true; msg.className = "msg"; msg.textContent = "…";
+      const args = {}; (it.fields || []).forEach((f, j) => args[f.name] = inputs[j].value);
+      const r = await act(k, it.id, args);
+      b.disabled = false;
+      msg.textContent = r.ok ? r.value?.message || (it.type === "form" ? "Saved" : "Started") : r.error; msg.className = r.ok ? "msg" : "msg err";
+      if (r.ok) inputs.forEach(i => i.value = "");
+    };
+    ctl.append(...inputs, b, msg);
+  }
+  if (["toggle", "range", "select", "text"].includes(it.type)) ctl.append(el("span", { className: "msg err rmsg" }));
+  row.append(it.type === "info" || it.type === "button" ? el("span", { className: "lab", textContent: it.label }) : lab, ctl);
+  if (it.hint) row.append(el("div", { className: "hint", textContent: it.hint }));
+  return row;
+}
+function update(row, it) {
+  const c = row.querySelector("#" + CSS.escape("s-" + row.dataset.key));
+  row.hidden = !!it.hidden;
+  const m = row.querySelector(".rmsg"), h = row.querySelector(".hint");
+  if (m) m.textContent = it.error || "";
+  if (h && it.hint && h.textContent !== it.hint) h.textContent = it.hint;
+  row.classList.toggle("off", !!it.disabled);
+  if (!c) return;
+  c.disabled = !!it.disabled && it.type !== "info";
+  if (document.activeElement === c && (it.type === "text" || it.type === "range")) return;    // don't fight the user
+  if (it.type === "toggle") c.checked = !!it.value;
+  else if (it.type === "range") { c.value = it.value; c.nextSibling.value = (+it.value).toFixed(+c.dataset.dp); }
+  else if (it.type === "select") {
+    const opts = JSON.stringify(it.options || []);
+    if (c.dataset.opts !== opts) { c.dataset.opts = opts; c.replaceChildren(...(it.options || []).map(([v, t]) => el("option", { value: v, textContent: t }))); }
+    c.value = it.value;
+  } else if (it.type === "text") c.value = it.value ?? "";
+  else if (it.type === "multi") {
+    const opts = JSON.stringify(it.options || []), on = new Set(it.value || []);
+    if (c.dataset.opts !== opts) {
+      c.dataset.opts = opts;
+      c.replaceChildren(...(it.options || []).map(([v, t]) => el("label", {}, el("input", { type: "checkbox", value: v }), t)));
+      c._filter();                                 // keep what's typed in Find applied
+    }
+    c.querySelectorAll("label").forEach(l => { l.firstChild.checked = on.has(l.firstChild.value); l.classList.toggle("sel", l.firstChild.checked); });
+    c._count.textContent = `${on.size} selected`;
+  }
+  else if (it.type === "info") c.textContent = it.error ? `Couldn't read this: ${it.error}` : it.value ?? "";
+  else if (it.type === "button") c.textContent = it.button;
+  else if (it.type === "form") c.textContent = it.button || "Save";
+}
+function drawPrograms() {
+  const box = document.getElementById("sec-programs");
+  for (const k of ["track", "label"]) {
+    const items = STATE[k];
+    if (!items) {                                  // not answered yet: loading, or the program failed
+      const id = "sec-wait-" + k;
+      const n = document.getElementById(id) || box.appendChild(el("section", { className: "sec", id }));
+      n.replaceChildren(el("h2", { textContent: NAMES[k] }),
+        el("p", { className: "note", textContent: errors[k] ? `${NAMES[k]} couldn't start, so its settings aren't available.` : "Loading…" }));
+      continue;
+    }
+    document.getElementById("sec-wait-" + k)?.remove();
+    for (const it of items) {
+      const sid = "sec-" + k + "-" + it.section;
+      let sec = document.getElementById(sid);
+      if (!sec) {
+        sec = box.appendChild(el("section", { className: "sec", id: sid }));
+        const resetable = items.filter(x => x.section === it.section && x.def != null && !x.noReset && ["toggle", "range", "select"].includes(x.type));
+        const h = el("h2", { textContent: it.section });
+        if (resetable.length) h.append(el("button", { className: "b", textContent: "Reset to defaults", type: "button",
+          onclick: () => { if (confirm(`Reset "${it.section}" to the default settings?`)) for (const x of STATE[k].filter(x => x.section === it.section && x.def != null && !x.noReset && ["toggle", "range", "select"].includes(x.type))) tell(k, { fs: "set", id: x.id, value: x.def }); } }));
+        sec.append(h);
+      }
+      const key = k + ":" + it.id;
+      const row = sec.querySelector(`[data-key="${CSS.escape(key)}"]`) || sec.appendChild(makeRow(k, it));
+      update(row, it);
+    }
+  }
+}
+async function openDir(which) { try { await fetch("/open?what=" + which, { headers: { "X-Face-Tool": "1" } }); } catch {} }
+(async () => {
+  try { const p = await (await fetch("/paths", { cache: "no-store" })).json();
+        document.getElementById("p-data").textContent = p.data; document.getElementById("p-private").textContent = p.private; } catch {}
+})();
+setInterval(() => { if (current === "set") askAll(); }, 5000);   // statuses (keys, downloads) and the other tabs' changes

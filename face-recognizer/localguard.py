@@ -14,6 +14,7 @@ labels), or use "DNS rebinding" to read their answers. Every request must theref
 """
 
 import http.server
+import json
 import sys
 import traceback
 
@@ -25,9 +26,10 @@ HEADER = "X-Face-Tool"
 FRAME_PARENTS = {"http://127.0.0.1:8764", "http://localhost:8764"}
 
 
-def page_headers(handler):
-    """Headers every answer gets: who may frame it, and no content sniffing."""
-    handler.send_header("Content-Security-Policy", "frame-ancestors 'self' " + " ".join(sorted(FRAME_PARENTS)))
+def page_headers(handler, frame_ancestors=None):
+    """Headers every answer gets: who may frame it (default: itself and the app's tab page), no content sniffing."""
+    handler.send_header("Content-Security-Policy",
+                        "frame-ancestors " + (frame_ancestors or "'self' " + " ".join(sorted(FRAME_PARENTS))))
     handler.send_header("X-Content-Type-Options", "nosniff")
 
 
@@ -41,6 +43,53 @@ class _Server(http.server.ThreadingHTTPServer):
 def bind(port):
     """A web server socket on 127.0.0.1:port, not serving yet. OSError when the port is taken."""
     return _Server(("127.0.0.1", port), http.server.BaseHTTPRequestHandler)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    """What the three servers' request handlers share: quiet, every answer with page_headers, the request
+    checks (refused), and any error no route caught answered with a JSON 500 (do_GET/do_POST). A server's
+    handler subclasses this and defines _get and/or _post, starting each with `if self.refused(...): return`."""
+    frame_ancestors = None                      # None: itself and the app's tab page; "'none'": never framed
+
+    def log_message(self, *args):
+        pass
+
+    def send(self, body, ctype="application/json", code=200, cache=False):
+        """Answer with bytes (of type ctype) or anything JSON can write. cache: the URL names unchanging content."""
+        if not isinstance(body, (bytes, bytearray)):
+            body = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=31536000, immutable" if cache else "no-store")
+        page_headers(self, self.frame_ancestors)
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                # the page was closed or reloaded mid-request
+
+    def send_json(self, obj, code=200):
+        self.send(obj, code=code)
+
+    def refused(self, write):
+        """Refuse (403) and return why, or None: see refuse_reason. write: the request changes or starts something."""
+        reason = refuse_reason(self.headers, self.server.server_address[1], write)
+        if reason:
+            self.send({"error": reason}, code=403)
+        return reason
+
+    def do_GET(self):
+        answer_errors(self, self._get, self.send_json)
+
+    def do_POST(self):
+        answer_errors(self, self._post, self.send_json)
+
+    def _get(self):
+        self.send({"error": "not found"}, code=404)
+
+    def _post(self):
+        self.send({"error": "not found"}, code=404)
 
 
 def answer_errors(handler, run, send_error):

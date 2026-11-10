@@ -17,7 +17,6 @@ Opens http://127.0.0.1:8766/ in your browser. Close this window to stop.
 """
 import argparse
 import base64
-import http.server
 import json
 import re
 import threading
@@ -31,12 +30,11 @@ import numpy as np
 
 import face_id as F
 import localguard
-from localguard import refuse_reason
 
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "tracker_ui.html"
 SCRIPTS = {"/expression.js": HERE / "expression.js", "/signals.js": HERE / "signals.js",
-           "/settings_bridge.js": HERE / "settings_bridge.js"}
+           "/settings_bridge.js": HERE / "settings_bridge.js", "/tracker_ui.js": HERE / "tracker_ui.js"}
 PEOPLE = F.DATA / "people.npz"
 CALIBRATION = F.DATA / "expr_calibration.json"   # written by tools/expr_eval.py
 VA_FIT = F.DATA / "va_fit.json"                   # written by tools/expr_eval.py from your feeling reports
@@ -297,37 +295,7 @@ class Recorder:
 
 def make_handler(engine):
 
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
-
-        def send(self, body, ctype, code=200):
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            localguard.page_headers(self)
-            self.end_headers()
-            try:
-                self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass                              # page was closed or reloaded mid-request
-
-        def send_json(self, obj, code=200):
-            self.send(json.dumps(obj).encode(), "application/json", code)
-
-        def refused(self, write):
-            reason = refuse_reason(self.headers, self.server.server_address[1], write)
-            if reason:
-                self.send_json({"error": reason}, 403)
-            return reason
-
-        def do_GET(self):
-            localguard.answer_errors(self, self._get, self.send_json)
-
-        def do_POST(self):
-            localguard.answer_errors(self, self._post, self.send_json)
-
+    class Handler(localguard.Handler):       # quiet, checked, errors answered: see localguard.Handler
         def _get(self):
             if self.refused(write=False):
                 return
@@ -429,6 +397,7 @@ def bind(port):
 
 def attach(srv):
     """Load the models and let srv answer the tracker page. Returns the Engine."""
+    F.require_models()
     engine = Engine()
     srv.RequestHandlerClass = make_handler(engine)
     return engine

@@ -50,7 +50,8 @@ def main():
         # does the plain view agree with the mirrored view? (the method averages both)
         x = (cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.float32) - 127.5) / 127.5
         x = np.ascontiguousarray(x.transpose(2, 0, 1)[None])
-        a = int(np.argmax(faces._xrun(x))); b = int(np.argmax(faces._xrun(np.ascontiguousarray(x[..., ::-1]))))
+        a = int(np.argmax(faces._xrun(x)))
+        b = int(np.argmax(faces._xrun(np.ascontiguousarray(x[..., ::-1]))))
         flips_agree += a == b
         scored.append((lab, float(p.max()), clear, a == b, float(store.quality[i]), float(store.box[i][2])))
     k = len(idx)

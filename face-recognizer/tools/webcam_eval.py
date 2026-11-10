@@ -9,7 +9,7 @@ so a webcam face is never matched against itself or its neighbours.
 Each test face becomes a simulated track of FRAMES webcam frames, each spoiled at random the way live
 frames are (blur, motion blur, low resolution, noise, JPEG, light changes). Then, per track:
   vote      the tracker today: each frame names someone; names are tallied, weighted by face quality
-            and similarity (as tracker_ui.html updateTracks does)
+            and similarity (as tracker_ui.js updateTracks does)
   average   the frames' face prints are averaged, weighted by face quality, and matched once
   avg+flip  as average, with each frame's print the mean of the face and its mirror image
   frame     one frame on its own (the per-frame rate, for reference)

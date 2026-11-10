@@ -26,7 +26,6 @@ Licences: ArcFace (InsightFace) and Wav2Small (audEERING, CC BY-NC-SA 4.0) are n
 import hashlib
 import io
 import json
-import os
 import struct
 import sys
 import time
@@ -36,8 +35,10 @@ import zipfile
 import zlib
 from pathlib import Path
 
+import paths
+
 HERE = Path(__file__).resolve().parent
-ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else HERE   # as face_id.ROOT
+ROOT = paths.ROOT                 # as face_id.ROOT (FACE_ROOT=<folder> uses another)
 MODELS = ROOT / "models"
 REPO = "SingularityResearch/facial-recognition"
 TAG = "models-v1"
@@ -202,7 +203,7 @@ def fetch(progress=None):
                             progress(done + got, total, name)
                 if h.hexdigest() != sha:
                     raise OSError(f"{name} downloaded, but it isn't the expected file (checksum differs)")
-                os.replace(tmp, MODELS / name)
+                paths.replace_file(tmp, MODELS / name)
                 done += got
                 break
             except Exception as e:

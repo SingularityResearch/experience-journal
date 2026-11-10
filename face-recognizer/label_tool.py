@@ -10,7 +10,6 @@ A page opens in your browser at http://127.0.0.1:8765/. Close this window when d
 Every change is saved immediately and can be undone.
 """
 import argparse
-import http.server
 import json
 import sys
 import threading
@@ -26,7 +25,6 @@ import numpy as np
 import describe
 import websearch
 import localguard
-from localguard import refuse_reason
 
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "label_ui.html"
@@ -129,7 +127,11 @@ def make_handler(db, importer):
                     return h, cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
                 from concurrent.futures import ThreadPoolExecutor
                 with ThreadPoolExecutor(2) as ex:
-                    window = [ex.submit(load, it) for it in todo[:4]]
+                    def submit(item):
+                        fu = ex.submit(load, item)
+                        fu.item = item                      # (hash, path): which photo, if it fails
+                        return fu
+                    window = [submit(it) for it in todo[:4]]
                     nxt = 4
                     while window and not importer.stop.is_set():
                         fu = window.pop(0)
@@ -144,11 +146,11 @@ def make_handler(db, importer):
                                 describe.save(h, describe.ask(jpg, name), write=False)
                                 st["new"] += 1
                         except describe.Unavailable as e:
-                            st["errors"] += 1
+                            L.note_problem(st, fu.item[1], str(e))
                             if "isn't running" in str(e):
                                 raise
-                        except Exception:
-                            st["errors"] += 1
+                        except Exception as e:
+                            L.note_problem(st, fu.item[1], e)
                         st["done"] += 1
                         if st["done"] % 25 == 0:
                             describe.flush()
@@ -224,36 +226,7 @@ def make_handler(db, importer):
             crop = cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)
         return cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
 
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
-
-        def send(self, body, ctype="application/json", code=200, cache=False):
-            if not isinstance(body, (bytes, bytearray)):
-                body = json.dumps(body).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "max-age=31536000, immutable" if cache else "no-store")
-            localguard.page_headers(self)
-            self.end_headers()
-            try:
-                self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        def refused(self, write):
-            reason = refuse_reason(self.headers, self.server.server_address[1], write)
-            if reason:
-                self.send({"error": reason}, code=403)
-            return reason
-
-        def do_GET(self):
-            localguard.answer_errors(self, self._get, lambda body, code: self.send(body, code=code))
-
-        def do_POST(self):
-            localguard.answer_errors(self, self._post, lambda body, code: self.send(body, code=code))
-
+    class Handler(localguard.Handler):       # quiet, checked, errors answered: see localguard.Handler
         def _get(self):
             if self.refused(write=False):
                 return
@@ -263,8 +236,8 @@ def make_handler(db, importer):
             try:
                 if path in ("/", "/index.html"):
                     return self.send(PAGE.read_bytes(), "text/html; charset=utf-8")
-                if path == "/settings_bridge.js":        # shared with the tracker's page: the app's Settings tab
-                    return self.send((HERE / "settings_bridge.js").read_bytes(), "text/javascript; charset=utf-8")
+                if path in ("/label_ui.js", "/settings_bridge.js"):   # the page's script; the Settings tab's bridge
+                    return self.send((HERE / path[1:]).read_bytes(), "text/javascript; charset=utf-8")
                 if path.startswith("/thumb/"):
                     i = int(path[7:].split(".")[0])
                     if 0 <= i < db.n:
@@ -388,7 +361,7 @@ def make_handler(db, importer):
                     try:
                         n = db.export(rows, body.get("folder", ""))
                     except OSError as e:
-                        raise ValueError(f"Couldn't copy into that folder: {e}")
+                        raise ValueError(f"Couldn't copy into that folder: {e}") from e
                     return self.send({"ok": True, **n})
                 if path == "/api/autoname":
                     return self.send({"ok": True, "named": db.autoname()})
@@ -396,7 +369,7 @@ def make_handler(db, importer):
                     try:
                         describe_all()
                     except describe.Unavailable as e:
-                        raise ValueError(str(e))
+                        raise ValueError(str(e)) from e
                     return self.send({"ok": True})
                 if path == "/api/describe/config":       # Settings: which describer, server, model, API key
                     describe.set_config(**{k: body[k] for k in ("use", "url", "model", "key") if k in body})
@@ -405,7 +378,7 @@ def make_handler(db, importer):
                     try:
                         return self.send({"ok": True, "message": describe.test(body.get("url") or "", body.get("key"))})
                     except describe.Unavailable as e:
-                        raise ValueError(str(e))
+                        raise ValueError(str(e)) from e
                 if path == "/api/describe/getmodel":     # download the built-in describer (florence.py), background
                     describe.florence.download_in_background()
                     return self.send({"ok": True})
@@ -420,7 +393,7 @@ def make_handler(db, importer):
                     try:
                         d = describe.ask(describe_picture(i))
                     except describe.Unavailable as e:
-                        raise ValueError(str(e))
+                        raise ValueError(str(e)) from e
                     return self.send(describe.save(k, d))
                 if path == "/api/websearch/aws":        # optional Amazon key, kept outside the project
                     websearch.save_aws(body.get("id"), body.get("secret"), body.get("region"))
@@ -478,7 +451,9 @@ def watch_webcam(importer, every=20):
 def attach(srv):
     """Load the faces and let srv (an HTTP server on 127.0.0.1) answer the labeling page; starts the
     background readers (photo dates and tags, webcam snapshots). Returns the LabelDB."""
+    import face_id as F
     import labels as L
+    F.require_models()
     db = L.LabelDB()
     importer = L.Importer(db)
     srv.RequestHandlerClass = make_handler(db, importer)

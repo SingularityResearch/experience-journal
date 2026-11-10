@@ -1,5 +1,6 @@
-# Runs the browser-code tests and the Python checker on every push and pull request.
-# Light on purpose: no Git LFS download (models and data aren't needed), no model runs.
+# Runs the tests and checkers on every push and pull request.
+# Light on purpose: no Git LFS download (models and data aren't needed: the tests use a made-up data folder,
+# local test servers and no models), no camera, no network beyond installing packages.
 name: checks
 
 on:
@@ -22,12 +23,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Tests (expression.js, signals.js)
-        run: node --test tests/*.test.js
+      - name: Browser code tests (expression.js, signals.js, settings_bridge.js) and page scripts
+        run: node --test tests
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Python checker (pyflakes)
+      - name: Install test requirements
+        # headless OpenCV on Linux; the app itself uses opencv-contrib-python (requirements.txt)
+        run: pip install -r requirements-dev.txt numpy==2.5.4 opencv-contrib-python-headless==5.0.0.93 pyflakes
+      - name: Python checkers (ruff, pyflakes)
         run: |
-          pip install pyflakes
-          python -m pyflakes *.py tools/*.py
+          python -m ruff check .
+          python -m pyflakes *.py tools/*.py tests/*.py
+      - name: Python tests
+        run: python -m pytest tests -q

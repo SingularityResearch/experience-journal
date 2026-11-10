@@ -14,6 +14,7 @@ if not defined PY (
 %PY% -m PyInstaller --noconfirm --clean --onefile --windowed --name FaceRecognizer ^
   --workpath build --distpath build\dist --specpath build ^
   --add-data "%~dp0tracker_ui.html;." --add-data "%~dp0label_ui.html;." ^
+  --add-data "%~dp0tracker_ui.js;." --add-data "%~dp0label_ui.js;." --add-data "%~dp0app_ui.html;." --add-data "%~dp0app_ui.js;." ^
   --add-data "%~dp0expression.js;." --add-data "%~dp0signals.js;." --add-data "%~dp0settings_bridge.js;." ^
   --collect-all mediapipe --collect-all onnxruntime --collect-submodules webview ^
   --hidden-import sklearn.cluster ^

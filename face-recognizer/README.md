@@ -56,7 +56,7 @@ You need Windows 10 or 11 (64-bit), an internet connection for the first build, 
 3. **Close FaceRecognizer.exe if it's running.** Windows locks a running .exe, so the new one can't be copied over it.
 4. **Double-click `build_app.bat`.** It:
    1. installs the pinned libraries in `requirements-build.txt` (`requirements.txt` plus PyInstaller) into that Python;
-   2. builds a single windowed .exe from `app.py` with PyInstaller. It packs in the five page files (`tracker_ui.html`, `label_ui.html`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
+   2. builds a single windowed .exe from `app.py` with PyInstaller. It packs in the page files (`tracker_ui.html`/`.js`, `label_ui.html`/`.js`, `app_ui.html`/`.js`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
    3. copies the result to `face-recognizer\FaceRecognizer.exe` (about 210 MB).
 
    It takes 2–6 minutes. Its work files go in `face-recognizer\build\`. Git ignores that folder and the .exe, and you can delete the folder any time.
@@ -359,6 +359,7 @@ Face prints from different models can't be mixed. After changing models, run `py
   - `webview\`: the app window's browser storage (each page's options, per-person baselines and usual looks); `app.log`: the app's messages and errors
 - The keys and `describe.json` are plain files readable by your Windows account; anyone who can sign in as you can read them.
 - `websearch.py`: the Web search (Amazon + Google, combined); `tools\websearch_check.py`: the same search on picture files
+- If an import or **Describe all** couldn't read some files, **Why?** beside the progress bar lists the last 20 and the reason for each (nothing is saved).
 - `data/expr_eval/`: expression test sessions (`<date>-<time>.jsonl`) and feeling reports (`feel-<date>.jsonl`), only if you've run the Expression test or reported how you feel (numbers only: no pictures, no audio). **Delete test data** on the tracker page removes them.
 - `data/expr_calibration.json`, `data/va_fit.json`: fitted by `tools\expr_eval.py` from those (a few numbers each; delete them to go back to the defaults)
 - Live expression readings, voice and pulse aren't written to `data`. The expression model, MediaPipe and the voice model are optional (the tracker says so at startup if one is missing). The usual looks live in the browser's storage for the tracker page.
@@ -373,11 +374,24 @@ All of `data/` stays on this computer: it's in `.gitignore` and not in the relea
 | Photo folders added | `data/settings.json` |
 | Web search keys | `%APPDATA%\FaceLabels\google_vision_key.txt`, `aws_rekognition.json` |
 | Describe photo: describer, server, model, API key | `%APPDATA%\FaceLabels\describe.json` |
-| Environment variables (optional) | `FACE_DEVICE` (auto, gpu, npu, cpu), `FACE_MODEL` (recognition model), `FACE_LLM_URL` (default describe server), `GOOGLE_VISION_API_KEY` |
+| Environment variables (optional) | `FACE_DEVICE` (auto, gpu, npu, cpu), `FACE_MODEL` (recognition model), `FACE_LLM_URL` (default describe server), `GOOGLE_VISION_API_KEY`, `FACE_ROOT` (another folder with `models\` and `data\`), `FACE_HOME` (another folder instead of `%APPDATA%\FaceLabels`) |
 
 Databases from before per-face labels are upgraded automatically the first time Face Labels starts (or with `python face_id.py migrate "<photo folder>"`). The old group files are moved to `data/backups/legacy-<date>/`.
 
 `data/backups/` holds the last 20 copies of `labels.json`; like the rest of `data/`, it's only on your computer, so back up `data/` yourself (it isn't in git).
+
+## Checks and tests (for changing the code)
+
+From `face-recognizer\`, with the Python 3.12 above and `python -m pip install -r requirements-dev.txt` once:
+
+```
+node --test tests              # the browser code, and that every page script parses and is served
+python -m ruff check .         # Python checker (ruff.toml)
+python -m pytest tests -q      # Python tests: no models, camera or network needed; never touch your data
+```
+
+GitHub runs the same on every push (`.github/workflows/checks.yml`). The tests use a made-up `data` folder and
+local test servers; `tests/test_thresholds.py` fails if a measured threshold changes, as a reminder to re-measure.
 
 ## More documentation
 

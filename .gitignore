@@ -6,3 +6,6 @@ data/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# Claude Code: personal settings for this computer (permissions), never shared
+.claude/settings.local.json

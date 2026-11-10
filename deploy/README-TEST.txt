@@ -6,7 +6,8 @@ testing on this computer. BUILD-INFO.json says which commit it is; SHA256SUMS.tx
 
 What's here
   FaceRecognizer.exe        the face recognizer (live tracker, labeling tool, alerts, Settings)
-  Start-FaceRecognizer.cmd  starts it with the TEST folders (face-root, face-home), never your own library
+  Start-FaceRecognizer.cmd  starts it with the TEST folders (face-root, face-home), never your own library, on
+                            ports 9764-9766, so it runs beside your usual copy (8764-8766)
   Run-FusionDemo.cmd        the journal's fusion on simulated people (needs Python 3.12 with numpy)
   journal\                  the journal's code and docs (the hub and its pages aren't built yet)
 

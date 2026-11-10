@@ -28,8 +28,9 @@ test("each page loads its scripts, in order, and each is served and packed into 
   for (const n of ["expression.js", "signals.js", "settings_bridge.js", "tracker_ui.js"]) assert.match(read("tracker.py"), new RegExp(`"/${n.replace(".", "\\.")}"`));
   for (const n of ["label_ui.js", "settings_bridge.js"]) assert.match(read("label_tool.py"), new RegExp(`"/${n.replace(".", "\\.")}"`));
   assert.match(read("app.py"), /"\/app_ui\.js"/);
-  const bat = read("build_app.bat");
-  for (const f of [...SCRIPTS, "tracker_ui.html", "label_ui.html", "app_ui.html"]) assert.ok(bat.includes(`%~dp0${f};.`), `${f} not packed`);
+  const build = read("build_exe.py");                      // the .exe build (build_app.bat and CI both run it)
+  for (const f of [...SCRIPTS, "tracker_ui.html", "label_ui.html", "app_ui.html"]) assert.ok(build.includes(`"${f}"`), `${f} not packed`);
+  assert.match(read("build_app.bat"), /build_exe\.py/);
 });
 
 test("hidden overlays really hide (a display rule would otherwise override the hidden attribute)", () => {

@@ -1,0 +1,8 @@
+# Personal data never goes in git
+data/
+*.sqlite
+*.sqlite3
+*.db
+__pycache__/
+.pytest_cache/
+.ruff_cache/

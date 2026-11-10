@@ -32,7 +32,7 @@ you point it at a model server on another device.
 
 | Decision | Why |
 |---|---|
-| **Local only**: two tiny servers on 127.0.0.1, with request checks (`localguard.py`) | Faces and voices are personal data. Nothing is uploaded, and other websites can't reach the servers. The one exception is opt-in per click: the labeling tool's **Web search** sends that face to Amazon and that photo to Google (US services, English results) to suggest who it is. |
+| **Local only**: two tiny servers on 127.0.0.1, with request checks (`localguard.py`) | Faces and voices are personal data. Nothing is uploaded, the pages load nothing from the internet (a Content-Security-Policy allows only their own server), and other websites can't reach the servers. The one exception is opt-in per click: the labeling tool's **Web search** sends that face to Amazon and that photo to Google (US services, English results) to suggest who it is. |
 | **Thresholds are measured values**, never guesses | Each matching, quality and voting threshold was measured on the owner's labeled photos, for example ArcFace match 0.35: 100% of labeled faces correct, 0% of strangers named. Changing one means re-measuring. |
 | **ArcFace for recognition**, with SFace as a fallback; AdaFace evaluated and rejected | ArcFace named 76% of blurry webcam-like faces correctly vs 44% for SFace. AdaFace was slower and less accurate on these photos (95.5% vs 99.4%). |
 | **Labels per face, not per cluster** | Cluster numbers change on every regrouping. A permanent ID per face keeps every decision, with undo history. |
@@ -220,8 +220,13 @@ The repository and the releases contain the programs only, no photos, faces, nam
 the tools learn from your photos lives in `face-recognizer/data/` (beside `FaceRecognizer.exe` for the
 .exe), which is created on first start, starts empty, and is in `.gitignore`: face prints, face pictures,
 labels, photo dates and people tags, saved Web search answers and benchmark results. Web search keys,
-photo descriptions and their settings, webcam snapshots and the presence log are in `%APPDATA%\FaceLabels\`,
+photo descriptions and their settings, Collect faces pictures and the presence log are in `%APPDATA%\FaceLabels\`,
 also only on your computer.
+
+Each person can be exported or forgotten from the labeling tool (a person's page, **Their data…**): the export
+writes everything held about them into a folder (`data.json` and their face pictures); forgetting removes their
+name, face prints and pictures from every place above and keeps only where their faces are, so the same photos
+aren't read again. An ignored face (a stranger, a bystander) keeps no face print or picture either.
 
 Until 2026-11-09 the repository included the author's `data/` folder; it was removed from the repository's
 whole history and from the releases then. Keep your own `data/` out of any public repository: it holds

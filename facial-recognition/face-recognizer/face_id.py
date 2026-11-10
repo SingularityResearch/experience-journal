@@ -80,9 +80,12 @@ IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif", ".gif",
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi", ".mkv"}
 
 MAX_SIDE = 1280          # photos are shrunk to this before detection (speed)
-# Webcam snapshots the tracker saves for labeling (its "Collect faces" option), with a .json beside each
-# saying who the tracker thought each face was. Outside the project; the labeling tool imports them.
+# Pictures of faces the tracker saves for labeling (its "Collect faces" option: each face with some room around
+# it, never the whole frame), with a .json beside each saying who the tracker thought it was. Outside the
+# project; the labeling tool imports them.
 WEBCAM = paths.HOME / "webcam"
+PRESENCE = paths.HOME / "presence"       # the tracker's opt-in presence log (names and times), one file a day
+ALERTS = paths.HOME / "alerts.json"      # the tracker's alert inbox (alerts.py): alerts kept to look at later
 DET_SCORE = 0.85         # detector confidence needed to keep a face
 MIN_FACE = 40            # px, smaller faces are too blurry to recognise reliably
 Q_ENROLL = 0.30          # faces below this eDifFIQA quality are not used to learn a person
@@ -758,7 +761,26 @@ class Store:
         self.thumbs_changed = True
 
     def missing_thumbs(self):
-        return sum(1 for t in self.thumbs if not t)
+        return sum(1 for i, t in enumerate(self.thumbs) if not t and not self.printless(i))
+
+    def printless(self, i):
+        """True if face i's print and picture were deleted (forget): an Ignored face, or a forgotten person's."""
+        return not np.any(self.emb[i])
+
+    def forget(self, i):
+        """Delete face i's print and picture; keep only where it is (face ID, photo, box, quality), so the photo
+        isn't read again and the face doesn't come back as a new face. Returns (print, picture) for an undo."""
+        old = (np.asarray(self.emb[i], np.float32).copy(), self.thumbs[i])
+        self.emb[i] = np.zeros_like(old[0])
+        if self.thumbs[i]:
+            self.thumbs[i] = b""
+            self.thumbs_changed = True
+        return old
+
+    def restore(self, i, saved):
+        """Put back a print and picture that forget() returned (Undo in the same session)."""
+        self.emb[i], self.thumbs[i] = saved[0], saved[1]
+        self.thumbs_changed = True
 
     def save(self):
         if self.thumbs_changed or not self.thumbs_path.exists():
@@ -856,6 +878,8 @@ def cmd_reembed(a):
     t0 = time.time()
     lost = []
     for i in range(len(store.emb)):
+        if store.printless(i):                   # deleted on purpose (Ignored or forgotten): stays deleted
+            continue
         crop = store.thumb(i)
         if crop is None:                         # no picture on this computer: make it again from the photo
             crop = rebuild_crop(store, i)

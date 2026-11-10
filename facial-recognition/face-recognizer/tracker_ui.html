@@ -4,15 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Face Tracker</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <style>
   /* Layout: viewfinder on the left, controls and readout on the right; stacks on narrow screens */
   :root {
     --bg: #eef1f0; --panel: #ffffff; --fg: #18211f; --muted: #5d6b67;
     --line: #d3dbd8; --accent: #0e9f6e; --warn: #c2410c; --unknown: #e0574a;
-    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-    --mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+    /* the computer's own fonts: the page loads nothing from the internet */
+    --sans: system-ui, "Segoe UI", sans-serif;
+    --mono: ui-monospace, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0f1413; --panel: #171e1c; --fg: #e4ebe8; --muted: #8b9a95;
@@ -69,7 +68,61 @@
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   input[type=text] { font: 13px var(--sans); padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); width: 100%; box-sizing: border-box; }
   .toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; background: var(--panel); color: var(--fg);
-           border: 1px solid var(--accent); border-radius: 8px; padding: 10px 16px; font-size: 14px; box-shadow: 0 6px 24px #0008; }
+           border: 2px solid var(--warn); border-radius: 10px; padding: 12px 14px 12px 18px; font: 600 16px var(--sans);
+           box-shadow: 0 8px 32px #000a; display: flex; align-items: center; gap: 12px; animation: pop .35s ease; }
+  .toast[hidden] { display: none; }
+  .toast button { padding: 6px 12px; }
+  @keyframes pop { from { transform: translate(-50%, -12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+  /* Alerts: the bell in the header (with how many are new) and the inbox panel it opens */
+  .bell { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; margin-left: auto; }
+  .bell.has { border-color: var(--warn); color: var(--warn); }
+  .bell.ring svg { animation: ring .9s ease 3; transform-origin: 50% 10%; }
+  @keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 40% { transform: rotate(-14deg); }
+                    60% { transform: rotate(10deg); } 80% { transform: rotate(-6deg); } }
+  .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--warn); color: #fff;
+           font: 700 12px/20px var(--sans); text-align: center; }
+  .badge[hidden] { display: none; }
+  .alerts { position: fixed; top: 64px; right: 16px; z-index: 20; width: min(440px, calc(100vw - 32px));
+            max-height: calc(100vh - 88px); display: flex; flex-direction: column; background: var(--panel);
+            border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px #000a; }
+  .alerts[hidden] { display: none; }
+  .alerts .ahead { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .alerts .ahead b { font-size: 15px; margin-right: auto; }
+  .alerts .atabs { display: flex; gap: 4px; width: 100%; order: 3; }
+  .alerts .atabs button { padding: 5px 10px; font-size: 12.5px; }
+  .alerts .atabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+  .alerts .alist { list-style: none; margin: 0; padding: 4px 0; overflow: auto; flex: 1; }
+  .alerts .alist li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .alerts .alist li:first-child { border-top: 0; }
+  .alerts .alist .when { color: var(--muted); font-size: 12px; }
+  .alerts .alist .acts { grid-row: 1 / 3; grid-column: 2; display: flex; gap: 6px; align-items: center; }
+  .alerts .alist .acts button { padding: 5px 9px; font-size: 12px; }
+  .alerts .alist .none { display: block; color: var(--muted); text-align: center; padding: 18px; }
+  .alerts.wide { width: min(980px, calc(100vw - 32px)); }
+  .alerts .details { grid-column: 1 / -1; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+                     background: var(--bg); font-size: 13px; }
+  .alerts .details .dsets { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .alerts .details h3 { font-size: 13.5px; margin: 0 0 4px; }
+  .alerts .details h4 { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 12px 0 4px; }
+  .alerts .details h5 { font-size: 12px; margin: 8px 0 2px; color: var(--muted); }
+  .alerts .details table { width: 100%; border-collapse: collapse; }
+  .alerts .details th, .alerts .details td { text-align: left; padding: 2px 6px 2px 0; font-weight: normal; vertical-align: top; }
+  .alerts .details .kv th { color: var(--muted); width: 55%; }
+  .alerts .details .vs th { color: var(--muted); font-size: 12px; }
+  .alerts .details td { font-variant-numeric: tabular-nums; }
+  .alerts .details .far { color: var(--warn); font-weight: 600; }
+  .alerts .details .na { color: var(--muted); }
+  .alerts .details .hint { color: var(--muted); font-size: 12px; margin: 4px 0; }
+  .alerts .details .bars div { display: grid; grid-template-columns: 80px 1fr 42px; gap: 8px; align-items: center; }
+  .alerts .details .bars i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 1px; }
+  .alerts .details .bars b { font-weight: normal; text-align: right; }
+  .alerts .details .bars.dim i { background: var(--muted); }
+  .alerts .details ul.ev { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .alerts .details ul.ev li { font: 12.5px/1.45 var(--mono); padding: 4px 8px; border-left: 3px solid var(--accent);
+                              background: var(--panel); border-radius: 0 4px 4px 0; }
+  .alerts .details ul.ev b { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+                             margin-right: 6px; }
+  .alerts .afoot { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 12px; border-top: 1px solid var(--line); }
   select { font: 13px var(--sans); padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); width: 100%; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   .toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -106,8 +159,23 @@
   <header>
     <h1>Face Tracker</h1>
     <div class="status" id="status"><span class="dot"></span><span id="statusText">Connecting to recognizer…</span></div>
+    <button id="bellBtn" class="bell" aria-controls="alertsPanel" aria-expanded="false" aria-label="Alerts" title="Alerts: see, acknowledge or archive"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22a2.4 2.4 0 0 0 2.4-2.2H9.6A2.4 2.4 0 0 0 12 22Zm7-5.6V11a7 7 0 0 0-5.3-6.8V3.6a1.7 1.7 0 0 0-3.4 0v.6A7 7 0 0 0 5 11v5.4L3 18.5v.8h18v-.8Z"/></svg><span>Alerts</span><span class="badge" id="bellCount" hidden>0</span></button>
     <button id="sideBtn" aria-controls="side" aria-expanded="true" title="Show or hide the controls (Ctrl+.)"><span class="bars"></span><span id="sideBtnText">Hide controls</span></button>
   </header>
+
+  <section class="alerts" id="alertsPanel" hidden aria-label="Alerts">
+    <div class="ahead">
+      <b>Alerts</b>
+      <button id="alertsClose" aria-label="Close alerts" title="Close (Esc)">Close</button>
+      <div class="atabs" role="tablist" aria-label="Which alerts">
+        <button role="tab" data-astate="new" aria-selected="true">New <span id="cnt-new"></span></button>
+        <button role="tab" data-astate="ack" aria-selected="false">Acknowledged <span id="cnt-ack"></span></button>
+        <button role="tab" data-astate="archived" aria-selected="false">Archived <span id="cnt-archived"></span></button>
+      </div>
+    </div>
+    <ul class="alist" id="alertItems"></ul>
+    <div class="afoot"><button id="alertsBulk"></button></div>
+  </section>
 
   <div class="stage mirror" id="stage">
     <video id="video" playsinline muted></video>
@@ -147,12 +215,25 @@
 
     <details class="card" id="alertCard">
       <summary class="label">Alerts and presence log</summary>
-      <label for="alertWho" class="label">Alert me when they arrive</label>
+      <label for="alertWho" class="label">Alert me about these people</label>
       <input type="text" id="alertWho" list="peopleList" placeholder="Names, separated by commas" autocomplete="off">
       <datalist id="peopleList"></datalist>
-      <label class="toggle" for="optAlertUnknown">Alert when an unknown face stays 30 seconds <input type="checkbox" id="optAlertUnknown"></label>
+      <p class="label">Events that raise an alert</p>
+      <label class="toggle" for="optAlertArrive">They arrive <input type="checkbox" id="optAlertArrive" checked></label>
+      <label class="toggle" for="optAlertLeave">They leave <input type="checkbox" id="optAlertLeave"></label>
+      <label class="toggle" for="optAlertUnusual">Their signals are unusual for them <input type="checkbox" id="optAlertUnusual"></label>
+      <label class="toggle" for="optAlertUnknown">An unknown face stays <input type="checkbox" id="optAlertUnknown"></label>
+      <p class="label">Timing</p>
+      <label class="toggle" for="optArriveGap">"Arrive": out of view at least <select id="optArriveGap" style="width:auto"><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option><option value="600" selected>10 min</option><option value="900">15 min</option><option value="1800">30 min</option><option value="3600">60 min</option></select></label>
+      <label class="toggle" for="optLeaveGap">"Leave": out of view for <select id="optLeaveGap" style="width:auto"><option value="60">1 min</option><option value="120">2 min</option><option value="300" selected>5 min</option><option value="600">10 min</option><option value="900">15 min</option><option value="1800">30 min</option></select></label>
+      <label class="toggle" for="optUnknownStay">Unknown face: stays <select id="optUnknownStay" style="width:auto"><option value="5">5 s</option><option value="10">10 s</option><option value="30" selected>30 s</option><option value="60">60 s</option><option value="120">120 s</option></select></label>
+      <label class="toggle" for="optUnusualZ">Unusual: at least <select id="optUnusualZ" style="width:auto"><option value="2">2 spreads</option><option value="2.5">2.5 spreads</option><option value="3" selected>3 spreads</option><option value="4">4 spreads</option></select></label>
+      <label class="toggle" for="optUnusualFor">Unusual: for at least <select id="optUnusualFor" style="width:auto"><option value="10">10 s</option><option value="20">20 s</option><option value="30" selected>30 s</option><option value="60">60 s</option><option value="120">120 s</option></select></label>
+      <label class="toggle" for="optUnusualRepeat">Unusual: at most one alert a person every <select id="optUnusualRepeat" style="width:auto"><option value="300">5 min</option><option value="600">10 min</option><option value="1800" selected>30 min</option><option value="3600">60 min</option></select></label>
+      <label class="toggle" for="optDetailsAfter">Measure again after <select id="optDetailsAfter" style="width:auto"><option value="5">5 s</option><option value="10">10 s</option><option value="15" selected>15 s</option><option value="30">30 s</option><option value="60">60 s</option></select></label>
+      <label class="toggle" for="optBannerFor">Banner stays <select id="optBannerFor" style="width:auto"><option value="10">10 s</option><option value="30" selected>30 s</option><option value="60">1 min</option><option value="120">2 min</option><option value="0">until dismissed</option></select></label>
       <label class="toggle" for="optAlertSound">Play a sound with alerts <input type="checkbox" id="optAlertSound" checked></label>
-      <p class="hint">"Arrive" means first seen after at least 10 minutes out of view. Alerts show on the video and, if you allow it, as Windows notifications.</p>
+      <p class="hint" id="alertHint">"Arrive": first seen after being out of view at least that long. "Leave": out of view that long. "Unusual": any of their signals that many spreads from their normal for that long (needs "Learn each person's normal"; these thresholds are guesses, not yet measured). Each alert keeps what was measured then and again after the set time (numbers only). Alerts show on the video, on the Alerts bell (where they stay until you acknowledge or archive them) and, if you allow it, as Windows notifications.</p>
       <label class="toggle" for="optPresence">Keep a presence log <input type="checkbox" id="optPresence"></label>
       <p class="hint" id="presenceHint">Off by default. When on, it notes who was in view and when (names and times only, no pictures), in <code>%APPDATA%\FaceLabels\presence\</code> on this computer, not in <code>data\</code>.</p>
       <div class="row"><button class="small" id="presenceShow">Show today</button></div>
@@ -228,8 +309,8 @@
         <input type="range" id="optThresh" min="0.2" max="0.6" step="0.01" value="0.35" aria-label="Match strictness">
       </div>
       <p class="hint">Higher strictness means fewer wrong names but more "Unknown". 0.35 is the measured best for your photos with the ArcFace model.</p>
-      <label class="toggle" for="optCollect" title="Save snapshots of faces in view for the labeling tool">Collect faces for labeling <input type="checkbox" id="optCollect"></label>
-      <p class="hint" id="collectHint">While a face stays in view, a sharp snapshot is saved every few seconds (up to 12 per face) with who the tracker thinks it is and how sure. The labeling tool picks them up by itself: it names the ones it's sure of and asks you about the rest.</p>
+      <label class="toggle" for="optCollect" title="Save pictures of the faces in view for the labeling tool">Collect faces for labeling <input type="checkbox" id="optCollect"></label>
+      <p class="hint" id="collectHint">While a face stays in view, a sharp picture of that face is saved every few seconds (up to 12 per face) with who the tracker thinks it is and how sure: just the face with a little room around it, never the whole frame, and any other face in that room greyed out. The labeling tool picks them up by itself: it names the ones it's sure of and asks you about the rest.</p>
     </div>
   </div></aside>
 </div>

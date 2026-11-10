@@ -544,7 +544,7 @@
       const all = this.people[name]?.all;
       if (!all) return 0;
       const ns = Object.values(all).map(s => s.n);
-      return Math.min(1, Math.max(...ns) / B_SETTLED);
+      return ns.length ? Math.min(1, Math.max(...ns) / B_SETTLED) : 0;   // nothing learned yet (Math.max() is -Infinity)
     }
     names() { return Object.keys(this.people).sort(); }
     forget(name) {

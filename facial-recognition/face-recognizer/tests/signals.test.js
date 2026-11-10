@@ -223,3 +223,13 @@ test("summary has every feature, and applyFit uses the person's model or the sha
   assert.deepEqual(S.applyFit(fit, "Chris", { p_happy: 5 }), [-1, 0]);   // clamped to -1..1
   assert.equal(S.applyFit(null, "Chris", s), null);
 });
+
+test("baselines: progress is 0, not -Infinity, for a person with nothing learned yet", () => {
+  const store = memStore();
+  store.setItem("ft-baselines", JSON.stringify({ Ann: { all: {} }, Bob: {} }));
+  const b = new S.Baselines(store);
+  assert.equal(b.progress("Ann"), 0);
+  assert.equal(b.progress("Bob"), 0);
+  assert.equal(b.progress("Nobody"), 0);
+  assert.equal(S.unusualEvidence(b, "Ann", {}, "alone"), "learning Ann's normal 0%");
+});

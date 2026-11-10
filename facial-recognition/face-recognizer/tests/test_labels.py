@@ -64,6 +64,58 @@ def test_ignore_and_clear(data):
     assert db.rec(3) == {}
 
 
+def _npz(path):
+    with np.load(path) as z:                     # closed again: Windows can't replace a file that's open
+        return dict(z)
+
+
+def test_ignore_deletes_the_print_and_picture_but_not_the_place(data):
+    pics = [_jpeg(10 * i) for i in range(6)]
+    make_faces(data, 6, thumbs=pics)
+    F.Store().save()
+    db = L.LabelDB(folders=[], backup=False, log=lambda *a: None)
+    emb2 = np.asarray(db.store.emb[2]).copy()
+    db.act("ignore", [2, 3], None)
+    z, s = _npz(data / "faces.npz"), F.Store()
+    assert not z["emb"][2].any() and not z["emb"][3].any() and z["emb"][1].any()      # prints gone from disk
+    assert s.thumbs[2] == b"" and s.thumbs[3] == b"" and s.thumbs[1] == pics[1]       # pictures too
+    assert list(z["fid"]) == [f"f{i}" for i in range(6)] and "h1" in s.photos         # where they are is kept
+    assert db.printless(2) and not db.usable(2) and L.IGNORE not in db.gallery()
+    assert db.undo() == "Ignored 2 faces"                       # Undo, in the same session, brings them back
+    z = _npz(data / "faces.npz")
+    assert np.allclose(z["emb"][2], emb2) and F.Store().thumbs[2] == pics[2] and not db.printless(2)
+
+
+def test_faces_ignored_before_lose_their_prints_at_start(data):
+    make_faces(data, 6, thumbs=[_jpeg(5)] * 6)
+    F.Store().save()
+    (data / "labels.json").write_text(json.dumps({"f4": {"n": L.IGNORE, "by": "me"}, "f0": {"n": "Ann", "by": "me"}}))
+    db = L.LabelDB(folders=[], backup=False, log=lambda *a: None)
+    assert db.printless(4) and not db.printless(0) and not _npz(data / "faces.npz")["emb"][4].any()
+    assert F.Store().thumbs[4] == b"" and db.name(4) == L.IGNORE
+
+
+def test_a_copy_of_a_photo_with_an_ignored_face_is_still_a_copy(data):
+    emb = make_faces(data, 6)
+    db = L.LabelDB(folders=[], backup=False, log=lambda *a: None)
+    db.act("ignore", [2], None)                                 # photo h1 holds faces 2 (ignored) and 3
+    assert db.same_faces("h1", [emb[2], emb[3]])                 # its copy: the same faces again
+    assert db.same_faces("h1", [emb[5], emb[3]])                 # the ignored one can't be compared any more
+    assert not db.same_faces("h1", [emb[0], emb[5]])             # face 3 isn't in it: another photo
+    db.act("ignore", [3], None)
+    assert db.same_faces("h1", [emb[0], emb[1]])                 # only ignored faces: the fingerprint decides
+    assert not db.same_faces("h1", [emb[0]])
+
+
+def test_ignored_faces_never_teach_the_recognizer_or_get_suggested(data):
+    make_faces(data, 6)
+    db = L.LabelDB(folders=[], backup=False, log=lambda *a: None)
+    db.act("ignore", [0, 1, 2], None)
+    db.act("name", [3], "Ann")
+    assert set(db.gallery()) == {"Ann"} and all(nm != L.IGNORE for _, nm, _, _ in db.triage())
+    assert list(_npz(data / "people.npz")["name"]) == ["Ann"]
+
+
 def _jpeg(v):
     return cv2.imencode(".jpg", np.full((112, 112, 3), v, np.uint8))[1].tobytes()
 

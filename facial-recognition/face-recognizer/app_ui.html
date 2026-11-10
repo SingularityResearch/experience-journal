@@ -12,6 +12,25 @@ nav small { margin-left: 8px; color: #6f827b; }
 nav .ver { margin-left: auto; align-self: center; padding-bottom: 6px; color: #6f827b; font-size: 12px; }
 nav .ver button { font: inherit; color: #9fb2ab; background: none; border: 0; padding: 0 0 0 8px; cursor: pointer; text-decoration: underline; }
 main { flex: 1; position: relative; }
+/* Alerts: the bell (how many are new; opens the tracker's alert inbox) and a banner over whichever tab is open */
+nav .bell { align-self: center; margin: 0 6px 6px auto; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  border: 1px solid #2c3f38; border-radius: 16px; color: #9fb2ab; }
+nav .bell:hover { color: #dfe8e4; }
+nav .bell.has { color: #ffd7c7; border-color: #fb923c; background: #3a2116; }
+nav .bell.ring svg { animation: ring .9s ease 3; transform-origin: 50% 10%; }
+@keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 40% { transform: rotate(-14deg); }
+  60% { transform: rotate(10deg); } 80% { transform: rotate(-6deg); } }
+nav .bell b { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #fb923c; color: #1a0d06;
+  font: 700 11.5px/18px "Segoe UI", system-ui, sans-serif; text-align: center; }
+nav .bell b[hidden] { display: none; }
+nav .ver { margin-left: 0; }
+.banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; align-items: center;
+  gap: 12px; background: #23150f; color: #ffe6dc; border: 2px solid #fb923c; border-radius: 10px; padding: 10px 12px 10px 16px;
+  font: 600 15px "Segoe UI", system-ui, sans-serif; box-shadow: 0 8px 32px #000c; animation: pop .35s ease; }
+.banner[hidden] { display: none; }
+.banner button { font: inherit; font-size: 13px; color: #dfe8e4; background: #18332a; border: 1px solid #2f5a4b; border-radius: 7px;
+  padding: 5px 12px; cursor: pointer; }
+@keyframes pop { from { transform: translate(-50%, -12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; }
 iframe.on { visibility: visible; }
 .wait { position: absolute; inset: 0; display: grid; place-content: center; color: #9fb2ab; }
@@ -59,13 +78,16 @@ iframe.on { visibility: visible; }
 @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
 </style></head><body>
 <nav role="tablist">
-  <button role="tab" id="tab-track" aria-selected="true" onclick="show('track')">Face tracking<small id="st-track">starting…</small></button>
-  <button role="tab" id="tab-label" aria-selected="false" onclick="show('label')">Labeling<small id="st-label">starting…</small></button>
-  <button role="tab" id="tab-set" aria-selected="false" onclick="show('set')">Settings</button>
-  <span class="ver"><span id="ver">v{{VERSION}}</span><button id="upd" onclick="checkUpdate()" title="Asks GitHub for the latest release (only when you click)">Check for updates</button></span>
+  <button role="tab" id="tab-track" aria-selected="true" data-tab="track">Face tracking<small id="st-track">starting…</small></button>
+  <button role="tab" id="tab-label" aria-selected="false" data-tab="label">Labeling<small id="st-label">starting…</small></button>
+  <button role="tab" id="tab-set" aria-selected="false" data-tab="set">Settings</button>
+  <button class="bell" id="bell" type="button" aria-label="Alerts" title="Alerts: see, acknowledge or archive (Ctrl+4)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 22a2.4 2.4 0 0 0 2.4-2.2H9.6A2.4 2.4 0 0 0 12 22Zm7-5.6V11a7 7 0 0 0-5.3-6.8V3.6a1.7 1.7 0 0 0-3.4 0v.6A7 7 0 0 0 5 11v5.4L3 18.5v.8h18v-.8Z"/></svg><span>Alerts</span><b id="bellN" hidden>0</b></button>
+  <span class="ver"><span id="ver">v{{VERSION}}</span><button id="upd" title="Asks GitHub for the latest release (only when you click)">Check for updates</button></span>
 </nav>
 <main>
   <div class="wait" id="wait">Loading the face models…</div>
+  <div class="banner" id="banner" role="alert" hidden><span id="bannerText"></span>
+    <button type="button" id="bannerView">View alerts</button><button type="button" id="bannerOk">Dismiss</button></div>
   <!-- visibility, not display:none, so the hidden tab keeps tracking and collecting faces -->
   <iframe id="f-track" title="Face tracking" allow="camera; microphone; autoplay; fullscreen"></iframe>
   <iframe id="f-label" title="Labeling" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
@@ -74,15 +96,15 @@ iframe.on { visibility: visible; }
       the same options stay on the Face tracking and Labeling tabs too.</p></div>
     <section class="sec" id="sec-app"><h2>App</h2>
       <div class="row"><span class="lab">Version</span><div class="ctl"><span>v{{VERSION}}</span>
-        <button class="b" id="upd2" onclick="checkUpdate()">Check for updates</button></div>
+        <button class="b" id="upd2">Check for updates</button></div>
         <div class="hint">Asks GitHub for the latest release, only when you click.</div></div>
       <div class="row"><span class="lab">Faces, names and labels</span><div class="ctl"><code id="p-data">data</code>
-        <button class="b" onclick="openDir('data')">Open folder</button></div>
+        <button class="b" data-open="data">Open folder</button></div>
         <div class="hint">The <code>data</code> folder beside the app. It stays on this computer; keep it out of any public repository.</div></div>
       <div class="row"><span class="lab">Keys, descriptions, snapshots, log</span><div class="ctl"><code id="p-private">%APPDATA%</code>
-        <button class="b" onclick="openDir('private')">Open folder</button></div>
+        <button class="b" data-open="private">Open folder</button></div>
         <div class="hint">Web search keys, photo descriptions, webcam snapshots, the presence log and this app's messages (app.log).</div></div>
-      <div class="row"><span class="lab">Switch tabs</span><div class="ctl"><span>Ctrl+1 Face tracking, Ctrl+2 Labeling, Ctrl+3 Settings</span></div></div>
+      <div class="row"><span class="lab">Switch tabs</span><div class="ctl"><span>Ctrl+1 Face tracking, Ctrl+2 Labeling, Ctrl+3 Settings, Ctrl+4 Alerts</span></div></div>
     </section>
     <div id="sec-programs"></div>
   </div></div>

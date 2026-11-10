@@ -18,7 +18,9 @@ Opens http://127.0.0.1:8766/ in your browser. Close this window to stop.
 import argparse
 import base64
 import json
+import math
 import re
+import sys
 import threading
 import time
 import webbrowser
@@ -29,6 +31,7 @@ import cv2
 import numpy as np
 
 import face_id as F
+import alerts
 import localguard
 
 HERE = Path(__file__).resolve().parent
@@ -41,30 +44,79 @@ VA_FIT = F.DATA / "va_fit.json"                   # written by tools/expr_eval.p
 MESH_TRIANGLES = F.mesh_triangles()                # face-mesh triangles for the page's "Face mesh" option
 
 
-def save_capture(jpeg, faces):
-    """Save a webcam frame for the labeling tool: <time>.jpg in F.WEBCAM plus <time>.json with the
-    tracker's verdict for each face it was saved for ([{box: [x, y, w, h], name, sim}], frame pixels)."""
+CAPTURE_MARGIN = 0.6     # room kept around a collected face, in face sizes: what face_id.rebuild_crop looks in to
+                         # find a face again, so the labeling tool's import finds it in the saved picture too
+CAPTURE_MIN = 160        # smaller pictures are enlarged to this (longer side), as rebuild_crop does to find small faces
+OTHER_PAD = 0.25         # another face is greyed out over its box and this much more on each side
+
+
+def _boxes(items, what, most=20):
+    """[[x, y, w, h], ...] from the page's list ({box: [...]} or plain boxes), checked. Raises ValueError."""
+    if not (isinstance(items, list) and len(items) <= most):
+        raise ValueError(f"expected at most {most} {what}")
+    out = []
+    for f in items:
+        box = f.get("box") if isinstance(f, dict) else f
+        if not (isinstance(box, list) and len(box) == 4
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in box)
+                and box[2] > 0 and box[3] > 0):
+            raise ValueError(f"each of the {what} needs a box [x, y, w, h]")
+        out.append([float(v) for v in box])
+    return out
+
+
+def save_capture(jpeg, faces, others=()):
+    """Collect faces: save each face the page asks for, for the labeling tool, as its own small picture: the face
+    with room around it (CAPTURE_MARGIN), never the whole frame, and with every other face in that room greyed
+    out (the other faces asked for, and others: the boxes of everyone else in view), so nobody else is saved.
+    Each is <time>-<k>.jpg in F.WEBCAM plus <time>-<k>.json with the tracker's verdict ({when, faces: [{box,
+    name, sim}]}, the box in that picture's pixels). Faces are boxes [x, y, w, h] in the frame's pixels with the
+    tracker's name and match. Returns the saved names (stems)."""
     img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("not a JPEG image")
-    if not (isinstance(faces, list) and 0 < len(faces) <= 20):
+    boxes = _boxes(faces, "faces")
+    if not boxes:
         raise ValueError("expected 1-20 faces")
-    clean = []
-    for f in faces:
-        box = f.get("box") if isinstance(f, dict) else None
-        if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box)):
-            raise ValueError("each face needs a box [x, y, w, h]")
-        clean.append({"box": [round(float(v), 1) for v in box], "name": str(f.get("name", "Unknown"))[:100],
-                      "sim": round(min(1.0, max(-1.0, float(f.get("sim", 0)))), 3)})
+    rest = _boxes(list(others), "other faces")
+    H, W = img.shape[:2]
+    when = time.strftime("%Y-%m-%d %H:%M:%S")
+    base = time.strftime("webcam-%Y%m%d-%H%M%S-") + f"{int(time.time() * 1000) % 1000:03d}"
     F.WEBCAM.mkdir(parents=True, exist_ok=True)
-    stem = time.strftime("webcam-%Y%m%d-%H%M%S-") + f"{int(time.time() * 1000) % 1000:03d}"
-    (F.WEBCAM / f"{stem}.json").write_text(json.dumps({"when": time.strftime("%Y-%m-%d %H:%M:%S"), "faces": clean}),
-                                           encoding="utf-8")
-    (F.WEBCAM / f"{stem}.jpg").write_bytes(jpeg)     # last, so the labeling tool never sees a jpg without its json
-    return stem
+    stems = []
+    for k, (f, (x, y, w, h)) in enumerate(zip(faces, boxes)):
+        m = max(w, h) * CAPTURE_MARGIN
+        x0, y0 = max(0, int(x - m)), max(0, int(y - m))
+        x1, y1 = min(W, int(np.ceil(x + w + m))), min(H, int(np.ceil(y + h + m)))
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue                              # outside the frame
+        part = img[y0:y1, x0:x1].copy()
+        for j, (ox, oy, ow, oh) in enumerate(boxes + rest):
+            if j == k:
+                continue
+            px, py = ow * OTHER_PAD, oh * OTHER_PAD
+            ax, ay = max(0, int(ox - px) - x0), max(0, int(oy - py) - y0)
+            bx, by = min(x1, int(np.ceil(ox + ow + px))) - x0, min(y1, int(np.ceil(oy + oh + py))) - y0
+            if bx > ax and by > ay:
+                part[ay:by, ax:bx] = 128
+        fx0, fy0 = max(0, int(x) - x0), max(0, int(y) - y0)    # this face itself stays, even where boxes overlap
+        fx1, fy1 = min(x1, int(np.ceil(x + w))) - x0, min(y1, int(np.ceil(y + h))) - y0
+        part[fy0:fy1, fx0:fx1] = img[y0 + fy0:y0 + fy1, x0 + fx0:x0 + fx1]
+        s = max(1.0, CAPTURE_MIN / max(part.shape[:2]))
+        if s > 1:
+            part = cv2.resize(part, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
+        verdict = {"box": [round((x - x0) * s, 1), round((y - y0) * s, 1), round(w * s, 1), round(h * s, 1)],
+                   "name": str(f.get("name", "Unknown") if isinstance(f, dict) else "Unknown")[:100],
+                   "sim": round(min(1.0, max(-1.0, float(f.get("sim", 0) if isinstance(f, dict) else 0))), 3)}
+        stem = f"{base}-{k}"
+        (F.WEBCAM / f"{stem}.json").write_text(json.dumps({"when": when, "faces": [verdict]}), encoding="utf-8")
+        jpg = cv2.imencode(".jpg", part, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+        (F.WEBCAM / f"{stem}.jpg").write_bytes(jpg)   # last: the labeling tool never sees a jpg without its json
+        stems.append(stem)
+    return stems
 
 
-PRESENCE = F.WEBCAM.parent / "presence"            # opt-in presence log: private, outside data/
+PRESENCE = F.PRESENCE                              # opt-in presence log: private, outside data/
 
 
 def log_visit(v):
@@ -128,7 +180,9 @@ class Engine:
         self.people_mtime = mtime
         self.ident = F.Identifier.load() if mtime is not None else None
         names = self.ident.names if self.ident else []
-        print(f"Known people: {', '.join(names) if names else 'none yet'}")
+        # names on a console only: in FaceRecognizer.exe this goes to app.log, which would then hold them
+        shown = ", ".join(names) if sys.stdout and sys.stdout.isatty() else f"{len(names)} named"
+        print(f"Known people: {shown if names else 'none yet'}")
 
     def people(self):
         with self.lock:
@@ -296,6 +350,10 @@ class Recorder:
 def make_handler(engine):
 
     class Handler(localguard.Handler):       # quiet, checked, errors answered: see localguard.Handler
+        # beyond localguard.POLICY: the microphone's sound tap (an AudioWorklet module the page makes as a blob:
+        # URL) and Open video (a file from this computer played through a blob: URL)
+        policy = {"script-src": "'self' blob:", "media-src": "'self' blob:"}
+
         def _get(self):
             if self.refused(write=False):
                 return
@@ -310,6 +368,8 @@ def make_handler(engine):
                     return self.send_json({"day": day, "visits": visits(day)})
                 except ValueError as e:
                     return self.send_json({"error": str(e)}, 400)
+            if path == "/api/alerts":                   # the alert inbox (alerts.py)
+                return self.send_json(alerts.listing())
             if path == "/api/people":
                 devices = {**engine.faces.devices, "voice": engine.voice.device}
                 return self.send_json({"people": engine.people(), "threshold": F.MATCH,
@@ -324,12 +384,6 @@ def make_handler(engine):
                                        "sessions": len(engine.recorder.sessions()),
                                        "reports": engine.recorder.reports()})
             self.send(b"not found", "text/plain", 404)
-
-        def body(self, limit):
-            n = int(self.headers.get("Content-Length", 0) or 0)
-            if not 0 < n < limit:
-                raise ValueError("empty or oversized request")
-            return self.rfile.read(n)
 
         def _post(self):
             if self.refused(write=True):
@@ -352,6 +406,19 @@ def make_handler(engine):
                     avd = engine.voice.avd(samples)
                     return self.send_json({"avd": None if avd is None else [round(v, 3) for v in avd],
                                            "ms": round((time.perf_counter() - t0) * 1000, 1)})
+                if path == "/api/alerts":                # one new alert the page raised, with what it measured
+                    rec = alerts.add(json.loads(self.body(alerts.DETAILS_MAX + 5_000)))
+                    return self.send_json({"alert": rec, "counts": alerts.counts()})
+                if path == "/api/alerts/details":        # the second set of measurements, 15 s later
+                    b = json.loads(self.body(alerts.DETAILS_MAX + 5_000))
+                    if not isinstance(b, dict):
+                        raise ValueError("expected an object")
+                    return self.send_json({"saved": alerts.add_details(b.get("id"), b.get("which"), b.get("details"))})
+                if path == "/api/alerts/state":          # acknowledge, archive, back to new, or delete
+                    b = json.loads(self.body(100_000))
+                    if not isinstance(b, dict):
+                        raise ValueError("expected an object")
+                    return self.send_json({"counts": alerts.set_state(b.get("ids"), b.get("state"), b.get("where"))})
                 if path == "/api/presence":              # opt-in presence log: one finished visit
                     log_visit(json.loads(self.body(10_000)))
                     return self.send_json({"saved": True})
@@ -362,9 +429,10 @@ def make_handler(engine):
                         raise ValueError(f"each print must have {F.REC['dim']} numbers")
                     threshold = min(0.9, max(0.1, float(body.get("t", F.MATCH))))
                     return self.send_json({"who": engine.who(prints, threshold)})
-                if path == "/api/capture":               # "Collect faces": frame for the labeling tool
-                    faces = json.loads(dict(parse_qsl(query)).get("faces", "[]"))
-                    return self.send_json({"saved": save_capture(self.body(20_000_000), faces)})
+                if path == "/api/capture":               # "Collect faces": each face's picture for the labeling tool
+                    q = dict(parse_qsl(query))
+                    faces, others = json.loads(q.get("faces", "[]")), json.loads(q.get("others", "[]"))
+                    return self.send_json({"saved": save_capture(self.body(20_000_000), faces, others)})
                 if path != "/api/recognize":
                     return self.send(b"not found", "text/plain", 404)
                 jpeg = self.body(20_000_000)
@@ -383,8 +451,8 @@ def make_handler(engine):
                 return self.send_json(engine.recognize(jpeg, threshold, cues=params.get("c") == "1",
                                                        pose=params.get("p") == "1", mesh=params.get("m") == "1",
                                                        record=record))
-            except (ValueError, TypeError) as e:
-                return self.send_json({"error": str(e)}, 400)
+            except (ValueError, TypeError) as e:       # incl. localguard.RequestError: 400, or 413 when too large
+                return self.send_json({"error": str(e)}, getattr(e, "code", 400))
 
     return Handler
 

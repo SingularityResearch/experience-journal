@@ -17,17 +17,21 @@ import threading
 import time
 import traceback
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 import localguard
 import paths
 
 TITLE = "Face Recognizer"
-VERSION = "1.8"                                    # this build; GitHub release tags are "v" + VERSION
+VERSION = "1.9"                                    # this build; GitHub release tags are "v" + VERSION
 REPO = "SingularityResearch/facial-recognition"
 HOME = paths.HOME                                  # %APPDATA%\FaceLabels: private, outside the project
 
 HERE = paths.HERE                                  # the page files (inside the .exe when built)
+# Each program runs on the first free port from its own (up to PORT_TRIES), or a copy already running there is used
+LABEL_PORT, TRACK_PORT, PORT_TRIES = 8765, 8766, 10
+TOOL_PORTS = range(LABEL_PORT, TRACK_PORT + PORT_TRIES)     # every port the two programs' pages can be on
+
 # The tab page: app_ui.html (layout and style) and app_ui.js (tabs, status, Settings tab)
 PAGES = {"/": (HERE / "app_ui.html", "text/html; charset=utf-8"),
          "/app_ui.js": (HERE / "app_ui.js", "text/javascript; charset=utf-8")}
@@ -45,15 +49,38 @@ def answering(url, app):
         return False
 
 
+def lets_us_frame(url):
+    """True if the page at url may be shown in this window: its frame-ancestors name this window's tab page
+    (localguard.FRAME_PARENTS, set by shell_server). A program started on its own (its .bat) names only itself."""
+    try:
+        req = urllib.request.Request(url, headers={"X-Face-Tool": "1"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            csp = r.headers.get("Content-Security-Policy", "")
+    except Exception:
+        return False
+    for rule in csp.split(";"):
+        words = rule.split()
+        if words[:1] == ["frame-ancestors"]:
+            return any(o in words[1:] for o in localguard.FRAME_PARENTS)
+    return False
+
+
 def start(name, module, port, app):
     """Start one program's server in this process on the first free port from `port`, or use the copy
     already running there. Returns its URL once it answers (models loaded)."""
-    for p in range(port, port + 10):
+    for p in range(port, port + PORT_TRIES):
         url = f"http://127.0.0.1:{p}/"
         try:
             srv = module.bind(p) if hasattr(module, "bind") else bind(p)
         except OSError:
             if answering(url, app):
+                if not lets_us_frame(url):
+                    # Started on its own, so it trusts only its own page. Starting a second copy instead would
+                    # have two programs writing the same data files, so ask for that copy to be closed.
+                    raise OSError(f"It is already running at {url}, started on its own (its .bat) or by another Face "
+                                  f"Recognizer window, and a copy started that way can't be shown in this window. "
+                                  f"\nClose that copy (its black "
+                                  f"window) and start the app again, or keep using it in your browser at {url}") from None
                 print(f"{name}: using the copy already running at {url}")
                 return url
             continue
@@ -62,7 +89,7 @@ def start(name, module, port, app):
         threading.Thread(target=srv.serve_forever, daemon=True, name=name).start()
         print(f"{name}: serving at {url}")
         return url
-    raise OSError(f"No free port between {port} and {port + 9}")
+    raise OSError(f"No free port between {port} and {port + PORT_TRIES - 1}")
 
 
 def bind(port):
@@ -92,15 +119,17 @@ def data_dir():
     return paths.ROOT / "data"
 
 
-def shell_server():
-    """The tab page itself, on 127.0.0.1 (an http://127.0.0.1 page counts as secure, which the camera
-    needs; so must the page around the tracker's frame). The same request checks as the two programs
-    (localguard): the right Host; and for anything that does something (contacts GitHub, opens a
-    browser or a folder) the X-Face-Tool header, which only this page sends."""
-    acts = ("/update", "/open-release", "/open")
+def shell_handler():
+    """The tab page's request handler. The same request checks as the two programs (localguard): the right
+    Host; and for anything that does something (contacts GitHub, opens a browser or a folder) the X-Face-Tool
+    header, which only this page sends."""
+    acts = ("/update", "/open-release", "/open", "/attention")
 
     class Handler(localguard.Handler):
         frame_ancestors = "'none'"                       # the window's own page: never inside another page
+        # beyond localguard.POLICY: the two programs' pages in its frames (on 127.0.0.1, any of their ports); no
+        # pictures of its own beyond its server's
+        policy = {"frame-src": " ".join(f"http://127.0.0.1:{p}" for p in TOOL_PORTS), "img-src": "'self'"}
 
         def _get(self):
             path = self.path.split("?", 1)[0]
@@ -109,6 +138,10 @@ def shell_server():
             if path in PAGES:
                 file, ctype = PAGES[path]
                 return self.send(file.read_text("utf-8").replace("{{VERSION}}", VERSION).encode(), ctype)
+            if path == "/attention":                     # alerts: the window's title and taskbar button
+                q = dict(parse_qsl(self.path.partition("?")[2]))
+                attention(int(q.get("unread", "0") or 0), q.get("flash") == "1")
+                return self.send({})
             if path not in ("/status", "/paths") + acts:
                 return self.send({"error": "not found"}, code=404)
             if path == "/open-release":                 # in the normal browser, not inside this window
@@ -129,20 +162,68 @@ def shell_server():
                 body = STATUS
             self.send(body)
 
+    return Handler
+
+
+def shell_server():
+    """The tab page itself, on 127.0.0.1 (an http://127.0.0.1 page counts as secure, which the camera
+    needs; so must the page around the tracker's frame)."""
     try:
         srv = bind(8764)                            # fixed, so the page's remembered tab survives restarts
     except OSError:
         srv = bind(0)                               # taken (a second copy?): any free port
-    srv.RequestHandlerClass = Handler
+    srv.RequestHandlerClass = shell_handler()
     port = srv.server_address[1]
-    localguard.FRAME_PARENTS.update({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})   # may frame the programs
+    # the programs this window starts may be framed by this page (and only then: see localguard.FRAME_PARENTS)
+    localguard.FRAME_PARENTS.update({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})
     threading.Thread(target=srv.serve_forever, daemon=True, name="shell").start()
     return f"http://127.0.0.1:{srv.server_address[1]}/"
 
 
+WINDOW = None                               # the app window, once made (main)
+
+
+def attention(unread, flash):
+    """New alerts (the tracker's inbox): say how many in the window's title, which shows on its taskbar button, and
+    flash the taskbar button when one just happened and the window isn't the one in front (Windows only)."""
+    w = WINDOW
+    if w is None:
+        return
+    unread = max(0, min(unread, 9999))
+    try:
+        w.set_title(f"{TITLE} · {unread} new alert{'s' if unread != 1 else ''}" if unread else TITLE)
+    except Exception:
+        pass
+    if not flash or sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class FLASHWINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND), ("dwFlags", wintypes.DWORD),
+                        ("uCount", wintypes.UINT), ("dwTimeout", wintypes.DWORD)]
+        hwnd = int(w.native.Handle.ToInt64())
+        # FLASHW_ALL | FLASHW_TIMERNOFG: caption and taskbar button, until the window comes to the front
+        info = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, 0x3 | 0xC, 0, 0)
+        ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
+    except Exception:
+        traceback.print_exc()
+
+
+def camera_allowed(uri):
+    """True if the page at uri may use the camera and microphone without a prompt: only the tracker this window
+    started or found (its address in STATUS), not any other program on 127.0.0.1."""
+    track = STATUS["track"].get("url")
+    if not track:
+        return False
+    u, t = urlparse(uri), urlparse(track)
+    return (u.scheme, u.hostname, u.port) == (t.scheme, t.hostname, t.port)
+
+
 def allow_camera(window):
-    """Let this window's own local pages use the camera and microphone without asking each time
-    (WebView2 asks by default). Pages from anywhere else still get WebView2's prompt."""
+    """Let this window's tracker page use the camera and microphone without asking each time (WebView2 asks by
+    default). Any other page, including other programs on 127.0.0.1, still gets WebView2's prompt."""
     if getattr(window, "_camera_ok", False):
         return
     window._camera_ok = True
@@ -151,7 +232,8 @@ def allow_camera(window):
         from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind as Kind, CoreWebView2PermissionState as State
 
         def on_request(_, e):
-            if urlparse(e.Uri).hostname == "127.0.0.1" and e.PermissionKind in (Kind.Camera, Kind.Microphone):
+            # the tracker's own alerts may show as Windows notifications too
+            if e.PermissionKind in (Kind.Camera, Kind.Microphone, Kind.Notifications) and camera_allowed(e.Uri):
                 e.State = State.Allow
 
         def hook():
@@ -203,8 +285,8 @@ def run_programs():
             for key, name in (("track", "Face tracker"), ("label", "Face Labels")):
                 fail(key, name, e)
             return
-        jobs = [("track", "Face tracker", tracker, 8766, "tracker"),
-                ("label", "Face Labels", label_tool, 8765, "face-labels")]
+        jobs = [("track", "Face tracker", tracker, TRACK_PORT, "tracker"),
+                ("label", "Face Labels", label_tool, LABEL_PORT, "face-labels")]
         for job in jobs:                            # both load at once: tracker models and the label database
             threading.Thread(target=one, args=job, daemon=True).start()
 
@@ -218,9 +300,12 @@ def main():
         sys.stdout = sys.stderr = log
         print(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} {TITLE} starting")
     import webview
+    shell = shell_server()                          # first: the programs started next trust this page to frame them
     run_programs()
-    window = webview.create_window(TITLE, shell_server(), width=1440, height=920, min_size=(900, 600),
+    window = webview.create_window(TITLE, shell, width=1440, height=920, min_size=(900, 600),
                                    background_color="#0d1512")
+    global WINDOW
+    WINDOW = window
     window.events.loaded += lambda: allow_camera(window)
     # private_mode=False keeps each page's remembered options and per-person baselines between runs
     webview.start(private_mode=False, storage_path=str(HOME / "webview"))

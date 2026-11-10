@@ -323,3 +323,21 @@ def _write(s):
 def count():
     with _lock:
         return len(_load())
+
+
+def find(match):
+    """{photo key: description} of the saved descriptions match(description) is true for (persondata.py)."""
+    with _lock:
+        return {k: dict(d) for k, d in _load().items() if match(d)}
+
+
+def drop(match):
+    """Delete the saved descriptions match(description) is true for (forgetting a person); returns how many."""
+    with _lock:
+        s = _load()
+        gone = [k for k, d in s.items() if match(d)]
+        for k in gone:
+            del s[k]
+        if gone:
+            _write(s)
+        return len(gone)

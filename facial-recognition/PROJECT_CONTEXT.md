@@ -3,7 +3,7 @@
 Exported 2026-10-29 from the Claude Project **"Facial-Recognition"**
 (*Detect known faces and provide for the management and labeling of new or unknown faces.*).
 Revised the same day to match the code and data as they now stand, and kept up to date since
-(last: 2026-11-09, v1.8 with the Settings tab, tests and CI; see §7 "Releases" and §10).
+(last: 2026-11-09, v1.9: the second round of review fixes, one person's export and forget; see §7 "Releases" and §10).
 
 This file collects everything established across the Project's chats so a coding assistant or a human
 opening the repo in VS Code has the full background: what was built, why, where it lives, the measured
@@ -70,7 +70,8 @@ X:\source\facial-recognition\
     ├── describe.py               Describe photo: LM Studio or any OpenAI-style server (Settings), else florence.py
     ├── florence.py               built-in Florence-2 large describer (ONNX int8, CPU; 0.8 GB on request)
     ├── fetch_models.py           first-start model download from the publishers, models-v1 as fallback; SHA-256
-    ├── localguard.py             refuse_reason(): request checks shared by both servers
+    ├── localguard.py             request checks, page headers (CSP, framing, CORP) and body limits shared by the servers
+    ├── persondata.py             one person's data: export (folder) and forget (every place it lives)
     ├── tests\                    Node tests (*.test.js) and Python tests (test_*.py, pytest); ruff.toml
     ├── setup.bat                 installs Python 3.12 via winget, then pip installs requirements.txt
     ├── recognize.bat             starts tracker.py (checks cv2/numpy are installed first)
@@ -103,7 +104,8 @@ X:\source\facial-recognition\
     └── data\                     produced by the tools; shared by all programs. LOCAL ONLY since 2026-11-09:
                                   the whole folder is in .gitignore, purged from git history and releases; a
                                   new copy starts with it empty (created on first start)
-        ├── faces.npz             every face found: permanent ID (fid), photo, box, face print, quality
+        ├── faces.npz             every face found: permanent ID (fid), photo, box, face print, quality. Ignored
+        │                         faces (since v1.9) keep ID, photo and box only: print zeroed, no picture
         ├── thumbs.npz            each face's picture (112x112 aligned crop, JPEG) by face ID. Until 2026-11-09
         │                         inside faces.npz; moved on the next save.
         │                         Missing: label_tool shows a placeholder or remakes it from the original photo
@@ -125,7 +127,8 @@ X:\source\facial-recognition\
 ```
 
 Outside the project, `%APPDATA%\FaceLabels\` holds what is private to this computer's user: Web search keys and
-monthly counts, `describe.json` (describer settings, optional API key), `descriptions.json`, `webcam\` (Collect faces),
+monthly counts, `describe.json` (describer settings, optional API key), `descriptions.json`, `webcam\` (Collect faces:
+each face alone with some room around it, others greyed out; whole frames until v1.9),
 `presence\` (opt-in log), `webview\` (the .exe window's browser storage: page options, baselines, usual looks), `app.log`.
 
 `face-recognizer\data_backup_20261029\` is a full copy of `data\` from before the per-face migration
@@ -418,6 +421,7 @@ Releases (FaceRecognizer.exe, GitHub Releases; `models-v1` holds the model files
 | v1.5 | Nov 9 | Describe photo (LM Studio; built-in Florence-2 fallback), stacks of the same picture |
 | v1.5.1 | Nov 9 | Models fetched from their publishers (OpenCV Zoo, MediaPipe, InsightFace), `models-v1` as fallback |
 | v1.6 | Nov 9 | All of `data/` taken out of the repository and its history (repo restarted as one commit); Amazon keys enterable in the app; "No photos yet" welcome |
+| v1.9 | Nov 9 | Code only so far (`VERSION` 1.9; not built or released): second round of review fixes. Pages load nothing from the internet (system fonts instead of Google Fonts) under a strict Content-Security-Policy; CORP, cross-site requests refused; tools trust the tab page only when the app started them; camera only for the app's tracker; request size limits; Collect faces saves each face alone; Ignore deletes the print and picture; one person's export and forget (**Their data…**); model files checked by SHA-256 (cached); pinned downloads in the tools; CI actions pinned to SHAs; Describe all no longer stops at a failing photo after the first four; alerts: an inbox (`alerts.py`, New / Acknowledged / Archived, the newest 500) with a bell on the tracker page and in the app's tab bar, a banner over any tab, the count in the window title and a taskbar flash; event types (arrive, leave, unusual for them, unknown face) and every timing as settings; each alert keeps what was measured then and again later, including the evidence lines (numbers and text only) |
 | v1.8 | Nov 9 | Settings tab (every option in sections, `settings_bridge.js`), all tracker options remembered, alert list with Unknown, Describe photo server/model/API key settings (any OpenAI-style server, other devices with a warning); security fixes from the review; Python tests, CI with ruff and pytest, `labels.py` split, **Why?** for unreadable files. v1.6 release removed (v1.8 is the only app release; `models-v1` stays for first-start downloads) |
 
 ---
@@ -572,9 +576,34 @@ Done the same day (in v1.8, before release), all checked in the running app:
 - **Requirements:** pinned to the versions in use; only `opencv-contrib-python` (setup.bat removes a plain
   `opencv-python`); pywebview added; `requirements-build.txt` for the build.
 
-Still open (security, low): consider refusing `Sec-Fetch-Site: cross-site` in `localguard` (other sites can still
-load `/thumb` and `/photo` as images and learn that the app runs and how many faces it has, though not see them);
-keys in plain files (DPAPI possible); a committed PyInstaller spec file.
+Still open (security, low): keys in plain files (DPAPI possible); a committed PyInstaller spec file. (Refusing
+`Sec-Fetch-Site: cross-site` was done in v1.9, see below.)
+
+### Review of 2026-11-09, second round: done the same night (v1.9, code; tests, not yet a release)
+- **Nothing from the internet in the pages:** the tracker page used Google Fonts; now system fonts (`system-ui`,
+  `ui-monospace`). Every answer has a Content-Security-Policy, `default-src 'self'` plus only what each page uses
+  (checked in headless Edge on a test copy: tracker with microphone worklet and blob: video, labeling page with
+  blob: pictures, the tab page's frames and Settings round trip, no violations); inline `onclick` attributes
+  moved into the scripts so `script-src` needs no `'unsafe-inline'`. `Cross-Origin-Resource-Policy: same-origin`;
+  `Sec-Fetch-Site: cross-site` refused.
+- **Framing:** `FRAME_PARENTS` starts empty; `app.py` adds its tab page before starting the programs, so a .bat copy
+  trusts nobody (the app's tab then says to close that copy). Camera and microphone pre-allowed only for the
+  app's own tracker port. Request bodies: `Handler.body(limit)` everywhere (negative length used to read to close).
+- **Collect faces** saves each face alone (0.6 face widths of room, as `rebuild_crop` uses; enlarged to 160 px;
+  other faces greyed out), never the whole frame. **Ignore** deletes the face's print and picture (Undo restores
+  them in the same session); ID, photo and box stay, so nothing is read again (a copy of a photo with ignored
+  faces is matched on its other faces, or on the fingerprint alone). Consequence: look-alikes of ignored faces
+  are no longer suggested as "ignore", and ignored possible faces no longer teach the faceness model.
+- **One person's data** (`persondata.py`, **Their data…**): export to a folder, or forget everywhere; the tracker
+  page's storage via the tab page (`forgetPerson`). The tracker no longer writes names to `app.log`.
+- **Bugs:** Describe all lost the photo of a failed load after the first four (AttributeError ended the job);
+  `Baselines.progress` gave -Infinity with nothing learned.
+- **Downloads:** model files are checked by SHA-256 also when already there (cached by size and time);
+  `get_wav2small.py` and `get_adaface.py` download at a pinned Hugging Face commit with size and SHA-256 (the
+  API's LFS ids, equal to the local copies). The face-tracker demo pins its MediaPipe file with an import-map
+  `integrity`; its engine files and model can't be pinned that way (README says it's the internet demo).
+- **CI:** actions pinned to commit SHAs (checkout v4.4.0, setup-node v4.4.0, setup-python v5.6.0).
+- Not done: moving `*.task` and `wav2small_src/model.safetensors` to Git LFS (would rewrite history).
 
 Structure and tests: done the same evening (in v1.8):
 - **Tests:** `face_id` no longer stops on import without models (programs call `require_models()`); `paths.py`

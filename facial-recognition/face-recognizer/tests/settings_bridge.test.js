@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function page({ ancestor = "http://127.0.0.1:8764" } = {}) {
+function page({ ancestor = "http://127.0.0.1:8764", alone = false } = {}) {
   const listeners = {}, posted = [];
   const parent = { postMessage: (msg, origin) => posted.push({ msg, origin }) };
   const ctx = {
@@ -16,6 +16,7 @@ function page({ ancestor = "http://127.0.0.1:8764" } = {}) {
     parent,
   };
   ctx.window = ctx;
+  if (alone) ctx.parent = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "settings_bridge.js"), "utf8") + "\nthis.SettingsBridge = SettingsBridge;", ctx);
   let value = false;
@@ -26,7 +27,7 @@ function page({ ancestor = "http://127.0.0.1:8764" } = {}) {
     await listeners.message({ data, origin, source });
     await new Promise(r => setTimeout(r, 0));
   };
-  return { send, posted, get value() { return value; }, parent };
+  return { send, posted, get value() { return value; }, parent, bridge: ctx.SettingsBridge };
 }
 
 test("answers the app window: state, set and actions", async () => {
@@ -57,4 +58,16 @@ test("a failed action is reported, not thrown", async () => {
   await p.send({ fs: "act", id: "missing", rid: 1 });
   assert.ok(!p.posted.some(m => m.msg.fs === "result"));
   assert.ok(p.posted.some(m => m.msg.fs === "state"));
+});
+
+test("notify tells only the window around the page, and only one on this computer", () => {
+  const p = page();
+  p.bridge.notify({ fs: "forgot", name: "Ann" });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(p.posted)), [{ msg: { fs: "forgot", name: "Ann", app: "test" }, origin: "http://127.0.0.1:8764" }]);
+  const q = page({ ancestor: "https://evil.example" });
+  q.bridge.notify({ fs: "forgot", name: "Ann" });
+  assert.strictEqual(q.posted.length, 0);
+  const alone = page({ alone: true });                              // opened on its own: no window around it
+  alone.bridge.notify({ fs: "forgot", name: "Ann" });
+  assert.strictEqual(alone.posted.length, 0);
 });

@@ -92,9 +92,12 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
   - `setup.bat` — installs Python 3.12 (winget) and `requirements.txt` (pinned versions; OpenCV as
     `opencv-contrib-python` only, which mediapipe needs; setup removes a plain `opencv-python` if one is installed).
     `requirements-build.txt` adds PyInstaller for `build_app.bat`; `requirements-dev.txt` has pytest and ruff.
-  - `build_exe.py` — the one description of the .exe build (PyInstaller options, page files packed); run by
-    `build_app.bat` here and by CI's `build` job on GitHub's Windows machines, which keeps the .exe 14 days as the
-    `FaceRecognizer-exe` artifact (with BUILD-INFO.json: commit, run, SHA-256).
+  - `build_exe.py` — the one description of the app build (PyInstaller options, page files packed), for the system it
+    runs on: `FaceRecognizer.exe` (Windows, one file), `FaceRecognizer.app` (macOS: Info.plist camera/microphone text,
+    macOS 14 minimum), the `FaceRecognizer` folder (Linux: leaves the system's graphics libraries out,
+    `LINUX_SYSTEM_LIBS`). Run by `build_app.bat` on Windows, by hand on macOS and Linux, and by CI's `build` job on all
+    three, which keeps 14 days the `FaceRecognizer-windows-x64`, `-macos-arm64` and `-linux-x64` artifacts (with
+    BUILD-INFO.json: commit, run, SHA-256, signed). Release steps: face-recognizer/README.md, "Building the app".
   - `fetch_models.py` — downloads missing models (or Git LFS placeholders): six from their publishers (OpenCV Zoo on Hugging
     Face, pinned; MediaPipe storage v1; ArcFace's bytes only, by range requests, from InsightFace's `buffalo_l.zip`),
     Wav2Small (and any fallback) from the GitHub Release `models-v1`,
@@ -136,6 +139,18 @@ python face_id.py --help         # CLI pipeline (run from face-recognizer\)
 
 Use the Python 3.12 the .bat files pick (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). The
 `python` on PATH (3.15) does not have OpenCV/onnxruntime installed.
+
+macOS (14+, Apple Silicon) and Linux (Ubuntu 22.04+), from `face-recognizer/`:
+```
+./setup.sh                                   # once: .venv, pinned libraries (+ pywebview[qt] on Linux), models
+./start.sh                                   # the app window (--browser, or FACE_UI=browser: the web browser)
+.venv/bin/python tracker.py                  # or label_tool.py, face_id.py --help: as on Windows
+.venv/bin/python -m pip install -r requirements-build.txt && .venv/bin/python build_exe.py   # build the app
+```
+Platform differences live in `paths.py` (folders), `desktop.py` (open a folder, attention), `app.py` (WebView2
+camera hook on Windows only; on Linux the window is first tried in a child process, `--probe-window`, falling back to
+the browser) and `face_id.py` (DirectML on Windows; CoreML/CUDA only with FACE_DEVICE=gpu until measured). Online-only
+cloud files (`photofiles.py`) are handled on Windows only. Ports: `FACE_PORTS=<n>` moves the app window's 8764-8766.
 
 ## Checks before committing
 
@@ -221,7 +236,10 @@ Test UI changes in the real app or a test copy, never against the owner's runnin
   browser's storage only (never `data/`); keep README wording honest ("looks", not "feels").
 - Describe photo is local by default. Pointing it at another device (Settings) sends each described photo there; the
   Settings tab must say so (`describe.where`). Descriptions and `describe.json` live in `%APPDATA%\FaceLabels`.
-- Releases: the zip holds `FaceRecognizer.exe` and a new-user `README.txt` only, never `data\`.
+- Releases: `FaceRecognizer-win64.zip` (`FaceRecognizer.exe` and a new-user `README.txt`),
+  `FaceRecognizer-macos-arm64.zip`, `FaceRecognizer-linux-x64.tar.gz` and `SHA256SUMS.txt`, from one CI run's
+  builds of the tagged commit; never `data\`. The macOS app is signed and notarized only once the Apple secrets
+  are set; say so in the notes until then.
 - The presence log (who was in view, when) is opt-in, names and times only, in `%APPDATA%\FaceLabels\presence\`, never `data/`.
 - Webcam faces named automatically don't enter the recognition gallery until confirmed (`LabelDB.gallery`).
 - Ignore deletes the face's print and picture (`LabelDB.forget_faces`, `Store.forget`; Undo restores them from memory

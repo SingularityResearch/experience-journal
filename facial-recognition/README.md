@@ -4,7 +4,7 @@ A fully local system that recognizes specific people on a webcam and reads facia
 other signals live. The expression side is also a small, honest research testbed: it measures what each
 signal is actually worth on your own face before letting it influence anything.
 
-Everything runs on one Windows PC. No photos, video, audio or face data leave the machine unless you send them
+Everything runs on one computer: Windows, macOS (14+, Apple Silicon) or Linux (Ubuntu 22.04+). No photos, video, audio or face data leave the machine unless you send them
 on purpose: the labeling tool's **Web search** (one face or photo, when you click it) and **Describe photo** if
 you point it at a model server on another device.
 
@@ -21,8 +21,8 @@ you point it at a model server on another device.
 
 | Part | What it does | Start it |
 |---|---|---|
-| [face-recognizer/](face-recognizer/README.md) | The Python project: photo import, face recognition, labeling, live tracker, measurement tools | `face-recognizer\setup.bat` once, then the two apps below |
-| FaceRecognizer.exe (`app.py`) | Both apps in one window, with **Face tracking**, **Labeling** and **Settings** tabs; downloads the models on first start | Download from Releases, or `face-recognizer\build_app.bat` |
+| [face-recognizer/](face-recognizer/README.md) | The Python project: photo import, face recognition, labeling, live tracker, measurement tools | `face-recognizer\setup.bat` once (macOS, Linux: `./setup.sh`), then the two apps below |
+| FaceRecognizer app (`app.py`) | Both apps in one window, with **Face tracking**, **Labeling** and **Settings** tabs and the **Alerts** bell; downloads the models on first start. `FaceRecognizer.exe` (Windows), `FaceRecognizer.app` (macOS), `FaceRecognizer` (Linux) | Download from Releases, or build it: [Building the app](face-recognizer/README.md#building-the-app-windows-macos-linux) (`build_app.bat` on Windows, `build_exe.py` on macOS and Linux); from the code, `./start.sh` on macOS and Linux |
 | Labeling tool (`label_tool.py`) | Add photos and videos, confirm suggested names, name new people, fix mistakes; clues for unknown faces (closest people, photo tags, same occasion), one-click **Web search** and **Describe photo** (a local vision model) | `face-recognizer\label.bat` → http://127.0.0.1:8765 |
 | Live tracker (`tracker.py`) | Names, match confidence, expression and other signals on each face | `face-recognizer\recognize.bat` → http://127.0.0.1:8766 |
 | Measurement (`tools/expr_eval.py`, `tools/eval_models.py`, `tools/hw_bench.py`) | Accuracy, calibration, talking, per-condition breakdowns, valence/arousal fit, model and hardware comparisons | `python tools\expr_eval.py` from `face-recognizer\` |
@@ -218,10 +218,11 @@ from audEERING.
 
 The repository and the releases contain the programs only, no photos, faces, names or labels. Everything
 the tools learn from your photos lives in `face-recognizer/data/` (beside `FaceRecognizer.exe` for the
-.exe), which is created on first start, starts empty, and is in `.gitignore`: face prints, face pictures,
+.exe; in `~/Library/Application Support/FaceRecognizer/data` or `~/.local/share/FaceRecognizer/data` for the macOS
+and Linux apps), which is created on first start, starts empty, and is in `.gitignore`: face prints, face pictures,
 labels, photo dates and people tags, saved Web search answers and benchmark results. Web search keys,
-photo descriptions and their settings, Collect faces pictures and the presence log are in `%APPDATA%\FaceLabels\`,
-also only on your computer.
+photo descriptions and their settings, Collect faces pictures, alerts and the presence log are in `%APPDATA%\FaceLabels\` (macOS:
+`~/Library/Application Support/FaceLabels`, Linux: `~/.local/share/FaceLabels`), also only on your computer.
 
 Each person can be exported or forgotten from the labeling tool (a person's page, **Their data…**): the export
 writes everything held about them into a folder (`data.json` and their face pictures); forgetting removes their

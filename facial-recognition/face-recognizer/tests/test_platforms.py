@@ -27,3 +27,35 @@ def test_attention_never_raises_where_the_window_cant_do_it():
         native = None
     for platform in ("win32", "darwin", "linux"):
         desktop.attention(NoWindow(), platform)          # prints why, doesn't raise
+
+
+def test_the_window_is_tried_in_a_child_process_on_linux_only(monkeypatch):
+    import subprocess
+    import types
+
+    import app
+    ran = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd)
+        return types.SimpleNamespace(returncode=ran_code[0], stderr=b"Could not initialize GLX")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ran_code = [3]                                   # the child aborted or never showed the page
+    monkeypatch.setattr(app.sys, "platform", "linux")
+    assert app.window_works() is False and ran[-1][-1] == "--probe-window"
+    ran_code[0] = 0
+    assert app.window_works() is True
+    monkeypatch.setattr(app.sys, "platform", "darwin")
+    n = len(ran)
+    assert app.window_works() is True and len(ran) == n      # macOS and Windows: not tried, always their web view
+
+
+def test_the_linux_build_leaves_graphics_libraries_to_the_system(tmp_path):
+    import build_exe
+    names = ["libgbm.so.1", "libX11.so.6", "libGLX_mesa.so.0", "libwayland-client.so.0",      # the system's own
+             "libdrm-b0291a67.so.2.4.0", "libX11-xcb-b482bfde.so.1.0.0", "libQt6Core.so.6", "libglib-2.0.so.0"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"")
+    gone = build_exe.drop_system_libs(tmp_path)
+    assert sorted(gone) == sorted(names[:4])
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(names[4:])   # private copies and Qt stay

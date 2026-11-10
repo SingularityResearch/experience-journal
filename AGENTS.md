@@ -37,7 +37,10 @@ Tests from the start: `python -m pytest tests -q` and `python -m ruff check .` (
   (made-up people for tests; never a claim about real people).
 - `tools/demo_fusion.py` — prints a "why" table and the layer comparison on simulated data.
 - Results quoted in DESIGN.md are on simulated data until real sensors exist; say so whenever they're quoted.
-- Git remote: `origin` (private GitHub repository); push only with the owner's go-ahead.
+- Git remote: `origin` (public GitHub repository, code only); push only with the owner's go-ahead. Being public,
+  nothing personal may ever be committed: no participant data, names, paths, accounts or keys.
+- [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md): status, measured values, decisions and history; update it with each
+  change that matters, like the face recognizer's.
 
 ## The face recognizer inside this repository (`facial-recognition/`)
 

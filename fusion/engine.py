@@ -39,7 +39,7 @@ MAX_PAUSE = 6 * 3600.0               # longest pause; after it the normal follow
 Z_CLIP = 6.0                         # z-scores are clipped to +-this before smoothing (one glitch can't dominate)
 MIN_SUPPORT = 0.5                    # a window needs this much trust-weighted support to count
 SETTLE = 120.0                       # seconds of later readings to wait for before fixing a check-in's features
-# Measured on simulated data (2026-11-10): fed every 30 s, the filter treated strongly overlapping 30-second
+# Measured on simulated data (2026-11-09): fed every 30 s, the filter treated strongly overlapping 30-second
 # windows as independent views and its 70% band held 54%; fed every 10 minutes, 74-77%.
 FILTER_EVERY = 600.0                 # seconds between a signal's readings fed to a Kalman filter
 

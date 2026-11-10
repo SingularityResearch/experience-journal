@@ -1,6 +1,6 @@
 # Experience Journal: design and plan
 
-Status: plan agreed 2026-11-10; the fusion engine (§6) is built and tested on simulated data; the rest isn't built yet. This document is the reference for what we're building, why,
+Status: plan agreed 2026-11-09; the fusion engine (§6) is built and tested on simulated data; the rest isn't built yet. This document is the reference for what we're building, why,
 and in what order. Change it when a decision changes.
 
 ## 1. What it is
@@ -109,7 +109,7 @@ the journal when that's switched on; it never depends on the journal.
 
 ## 6. Fusion (the core)
 
-Code: `fusion/` (implemented 2026-11-10, tested on simulated people; no real sensors yet). A three-layer model,
+Code: `fusion/` (implemented 2026-11-09, tested on simulated people; no real sensors yet). A three-layer model,
 simple first, each extra step earning its place on held-out data.
 
 ### Layer 1: clean signals on each person's own scale (`baselines.py`, `windows.py`, `away.py`)
@@ -164,7 +164,7 @@ simple first, each extra step earning its place on held-out data.
   (loading, noise from data), noise scaled by trust; check-ins a direct view. Handles sensors at different rates and
   dropouts (the band widens). Explainable: each update's move is credited to its sensor, credits decay with the level,
   and they add up exactly to the departure from usual.
-- **Result on simulated fortnights (2026-11-10): it doesn't beat layer 2.** Fed every 30 s it lost clearly (error
+- **Result on simulated fortnights (2026-11-09): it doesn't beat layer 2.** Fed every 30 s it lost clearly (error
   0.76 vs 0.63, its 70% band held only 54%): it treated strongly overlapping 30-second windows as independent views.
   Fed every 10 minutes (`FILTER_EVERY`), with an offset per sensor, it roughly ties over six seeds (live error
   0.59-0.67 vs 0.57-0.67 for layer 2; band 79-84%, a little wide). Still to try on real data: fitting the time
@@ -175,7 +175,7 @@ simple first, each extra step earning its place on held-out data.
 Forward chaining (fit on earlier days, predict the next; never shuffled), against "your average" and "your last
 check-in", with the 70% band's coverage. Everything a fold uses (lags, feature scales, weights, normals) comes from
 earlier data only. Simulated fortnights (2 people, 4 sensors, one of them irrelevant, 5 check-ins a day; the
-simulator follows the model's own assumptions, so real data will do worse), six seeds (2026-11-10): layer 2 error
+simulator follows the model's own assumptions, so real data will do worse), six seeds (2026-11-09): layer 2 error
 0.54-0.65 vs 0.88-1.07 for "your average" and 0.94-1.31 for "your last check-in", 70% band holds 68-86% (ratings are
 whole numbers, which widens it a little); the irrelevant signal's weights stay within noise of 0. Tests check seed
 0 and two others. `tools/demo_fusion.py` prints a "why" table.
@@ -216,4 +216,5 @@ whole numbers, which widens it a little); the irrelevant signal's weights stay w
 - Whether results will be published or shared outside the project: if so, a formal consent form and ethics review
   first, and only de-identified, aggregated numbers leave the local network, each time with the participants'
   agreement.
-- Name of the project; whether it gets a private GitHub repository (code only; data never leaves home).
+- Name of the project. (Decided 2026-11-09: the code is a public GitHub repository, like the face recognizer;
+  participant data never leaves the project's computers.)

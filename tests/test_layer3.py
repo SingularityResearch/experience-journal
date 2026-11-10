@@ -63,7 +63,7 @@ def test_a_sensor_sitting_at_its_offset_moves_nothing():
 
 def test_kalman_is_measured_against_layer_2(fortnight):
     """The rule: layer 3 is used only if it beats layer 2 on held-out data. On simulated fortnights it doesn't yet
-    (2026-11-10, fed every 10 minutes, six seeds: error 0.59-0.67 vs 0.57-0.67, band 79-84% for 70%; fed every
+    (2026-11-09, fed every 10 minutes, six seeds: error 0.59-0.67 vs 0.57-0.67, band 79-84% for 70%; fed every
     30 s it was 0.76 vs 0.63 with 54%); this test keeps that comparison running, whichever way it comes out."""
     f, _, day7 = fortnight
     live = prospective(f, "energized", after=day7)

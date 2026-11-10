@@ -36,6 +36,11 @@ Tests from the start: `python -m pytest tests -q` and `python -m ruff check .` (
   estimates out; logs live predictions), `evaluate.py` (forward chaining, baselines, calibration), `simulate.py`
   (made-up people for tests; never a claim about real people).
 - `tools/demo_fusion.py` — prints a "why" table and the layer comparison on simulated data.
+- CI (`.github/workflows/checks.yml`): the journal's checks, the face recognizer's checks, then `bundle` (Windows):
+  FaceRecognizer.exe via `facial-recognition/face-recognizer/build_exe.py` plus the journal and `deploy/`'s launchers,
+  with BUILD-INFO.json and SHA256SUMS.txt, as the `experience-journal-bundle` artifact. `deploy/deploy_local.ps1`
+  installs green pushes to main on a test computer (pull-based: no self-hosted runner, as both repositories are
+  public). Test builds use their own FACE_ROOT/FACE_HOME folders, never the owner's library.
 - Results quoted in DESIGN.md are on simulated data until real sensors exist; say so whenever they're quoted.
 - Git remote: `origin` (public GitHub repository, code only); push only with the owner's go-ahead. Being public,
   nothing personal may ever be committed: no participant data, names, paths, accounts or keys.

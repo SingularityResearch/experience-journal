@@ -1,0 +1,4 @@
+# Windows launchers and scripts keep Windows line endings wherever they are checked out (CI builds the bundle from them)
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

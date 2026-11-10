@@ -27,6 +27,7 @@ phased plan are in [docs/DESIGN.md](docs/DESIGN.md).
 | `facial-recognition/` | the face recognizer (FaceRecognizer.exe: live tracker, labeling tool, alerts, Settings), the first sensor source; a copy of [its own public repository](https://github.com/SingularityResearch/facial-recognition), kept in step with `git subtree pull` |
 | `docs/` | the design and plan |
 | `tools/`, `tests/` | the fusion demo and tests |
+| `deploy/` | the test build's launchers and `deploy_local.ps1`, which installs green builds on a test computer |
 
 The face recognizer works on its own and never depends on this repository: see
 [facial-recognition/README.md](facial-recognition/README.md).
@@ -67,7 +68,28 @@ python -m ruff check .
 python -m pytest tests -q            # about 10 s: includes three simulated fortnights
 ```
 
-CI runs these, and the face recognizer's own checks, on every push.
+CI runs these, and the face recognizer's own checks, on every push and pull request.
+
+## Test builds (human in the loop)
+
+Once every check passes, CI builds the combined application on Windows: `FaceRecognizer.exe` (from
+`facial-recognition/`, with its own `build_exe.py`), the journal's code, launchers, `BUILD-INFO.json` and
+`SHA256SUMS.txt`, as the run's **experience-journal-bundle** artifact (kept 14 days).
+
+On a test computer, [deploy/deploy_local.ps1](deploy/deploy_local.ps1) installs the newest green build of `main`.
+It pulls the build (GitHub never reaches into the computer), checks every file's SHA-256 and the commit, and
+keeps the last 3 builds. The test app gets its own models and data folders, so it never touches your own library.
+It needs the GitHub CLI, signed in.
+
+```
+powershell -ExecutionPolicy Bypass -File deploy\deploy_local.ps1 -Launch          # install the newest build and start it
+powershell -ExecutionPolicy Bypass -File deploy\deploy_local.ps1 -SeedFrom <face-recognizer folder>   # copy models and a library into the test folders, once
+powershell -ExecutionPolicy Bypass -File deploy\deploy_local.ps1 -Install         # check every 10 minutes, notify per new build
+powershell -ExecutionPolicy Bypass -File deploy\deploy_local.ps1 -Uninstall       # stop checking
+```
+
+Start the installed build from the Start menu (**Experience Journal (test)**). A running test copy is never
+stopped: the next start uses the new build.
 
 ## Participant data stays on your computers
 

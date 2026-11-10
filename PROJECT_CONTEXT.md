@@ -17,6 +17,7 @@ never leaves the project's computers.
 | The face recognizer | `facial-recognition/` here, a git subtree of `SingularityResearch/facial-recognition` (public); changes go there first, then `git subtree pull --prefix=facial-recognition <its path or URL> main` |
 | Participant data | `data/` (not in git), later the hub's SQLite database; the face recognizer's own data in its `data/` and `%APPDATA%\FaceLabels` |
 | Python | 3.12; the fusion needs only numpy |
+| Test builds | CI's `experience-journal-bundle` artifact (14 days); installed by `deploy/deploy_local.ps1` into `%LOCALAPPDATA%\ExperienceJournal\test` (builds, Start.cmd, its own face-root and face-home), Start menu **Experience Journal (test)** |
 
 ## 3. The fusion engine (`fusion/`)
 
@@ -56,6 +57,8 @@ The simulator follows the model's assumptions, so real data will do worse.
 - Layer 2 is the estimate shown until layer 3 beats it on held-out weeks.
 - Thresholds are marked measured or guess; results quoted say they're simulated until real sensors exist.
 - Both repositories public, code only (2026-11-09).
+- Test builds are pulled by the test computer, never pushed to it: no self-hosted runner on a public repository
+  (2026-11-09). A test build never uses the owner's own library or private folder.
 
 ## 6. History
 
@@ -65,6 +68,8 @@ The simulator follows the model's assumptions, so real data will do worse.
   the band, traceable Why view, Kalman fed every 10 min, multi-seed tests); the project reframed as consented
   research with an open sensor set; face recognizer v1.9 (security and privacy fixes, export and forget per person,
   alert inbox with event types, timings and the evidence each alert measured).
+- 2026-11-09: both repositories public; CI builds FaceRecognizer.exe (face recognizer) and the combined bundle
+  (journal) after the checks pass; `deploy/deploy_local.ps1` installs green builds locally for hands-on testing.
 
 ## 7. Next
 

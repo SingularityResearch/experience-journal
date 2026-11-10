@@ -354,3 +354,11 @@ def test_every_event_type_can_be_an_alert(track):
         assert request(url, "/api/alerts", json.dumps(body).encode())[0] == 400, kind
     kinds = sorted(a["kind"] for a in json.loads(request(url, "/api/alerts")[2])["alerts"])
     assert kinds == ["arrived", "left", "unusual"]
+
+
+def test_a_second_copy_can_use_other_ports():
+    assert app.ports({}) == (8764, 8765, 8766)
+    assert app.ports({"FACE_PORTS": "9764"}) == (9764, 9765, 9766)     # a test build beside the usual copy
+    assert app.ports({"FACE_PORTS": "nonsense"}) == (8764, 8765, 8766)
+    with pytest.raises(SystemExit):
+        app.ports({"FACE_PORTS": "80"})

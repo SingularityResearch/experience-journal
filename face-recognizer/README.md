@@ -22,7 +22,7 @@ Everything runs locally. No photos leave your computer, with one exception you s
 
 ## Getting it
 
-- **Just to run it:** download `FaceRecognizer-win64.zip` from the project's GitHub **Releases**, unzip it anywhere, and double-click **FaceRecognizer.exe**. No Python needed. It starts with no faces or names: add your own photos in the Labeling tab (**Add photos**). On first start it downloads the face models (about 196 MB) into the `models\` folder beside it. After that it works offline.
+- **Just to run it:** download it from the project's GitHub **Releases**: `FaceRecognizer-win64.zip` (Windows: unzip it anywhere and double-click **FaceRecognizer.exe**), `FaceRecognizer-macos-arm64.zip` (macOS 14+ on Apple Silicon: **FaceRecognizer.app**) or `FaceRecognizer-linux-x64.tar.gz` (Ubuntu 22.04+: unpack it and run `FaceRecognizer/FaceRecognizer`). No Python needed. It starts with no faces or names: add your own photos in the Labeling tab (**Add photos**). On first start it downloads the face models (about 196 MB): on Windows into the `models\` folder beside it, on macOS and Linux into your application-data folder (see **macOS and Linux**). After that it works offline.
 - **The code:** install [Git LFS](https://git-lfs.com) first, then `git clone` the repo. The face models are stored with Git LFS. Without it you get small placeholder files instead, and the programs stop with *"Model files weren't downloaded: install Git LFS and run git lfs pull"*. Run `git lfs install` and `git lfs pull` to fix that. `python fetch_models.py` (which setup.bat also runs) downloads just the models.
 - **Download ZIP** on GitHub includes the models: the repository's *Include Git LFS objects in archives* setting is on (since 2026-11-08). Unzip it and run `setup.bat` as above.
 
@@ -31,10 +31,9 @@ Everything runs locally. No photos leave your computer, with one exception you s
 The app also runs on **macOS 14 or later on Apple Silicon** (M1 and later; the recognition libraries have no Intel
 Mac builds) and on **Linux** (built and tested on Ubuntu; x86_64, and ARM from source).
 
-- **Builds:** every push builds the app for all three systems on GitHub (the run's artifacts, kept 14 days):
-  `FaceRecognizer-macos-arm64.zip` (`FaceRecognizer.app`; signed and notarized once the project's Apple signing keys
-  are set, else right-click it and choose **Open** the first time) and `FaceRecognizer-linux-x64.tar.gz` (unpack it,
-  then run `FaceRecognizer/FaceRecognizer`).
+- **Ready-made:** the release's `FaceRecognizer-macos-arm64.zip` (`FaceRecognizer.app`; not yet signed by Apple:
+  right-click it and choose **Open** the first time) and `FaceRecognizer-linux-x64.tar.gz` (unpack it, then run
+  `FaceRecognizer/FaceRecognizer`). To build them yourself, see **Building the app** below.
 - **From the code:** `./setup.sh` once (a Python 3.12 environment in `.venv` with the pinned libraries and, on Linux,
   the Qt app window; then the models), then `./start.sh`, or double-click `FaceRecognizer.command` on a Mac.
   Python 3.12 first: `brew install python@3.12` (macOS) or `sudo apt install python3.12 python3.12-venv` (Ubuntu).
@@ -57,52 +56,133 @@ Mac builds) and on **Linux** (built and tested on Ubuntu; x86_64, and ARM from s
 
 ## Setup (once)
 
-Double-click **setup.bat**. It installs Python 3.12 if needed (with winget), installs the libraries in `requirements.txt`, downloads any face models that are missing (`fetch_models.py`), and checks that they load. The .bat files all use that Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`); to run the `.py` files yourself, use the same one, because a different Python on your PATH may not have OpenCV and ONNX Runtime installed.
+**macOS and Linux:** run `./setup.sh` (see **macOS and Linux** above); then use `.venv/bin/python` wherever this guide says `python`, and `./start.sh` for the app.
 
-## One window: FaceRecognizer.exe
+**Windows:** double-click **setup.bat**. It installs Python 3.12 if needed (with winget), installs the libraries in `requirements.txt`, downloads any face models that are missing (`fetch_models.py`), and checks that they load. The .bat files all use that Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`); to run the `.py` files yourself, use the same one, because a different Python on your PATH may not have OpenCV and ONNX Runtime installed.
+
+## One window: FaceRecognizer.exe (FaceRecognizer.app, FaceRecognizer on Linux)
 
 **FaceRecognizer.exe** opens the face tracker and the labeling tool in one window, with a **Face tracking** tab, a **Labeling** tab and a **Settings** tab at the top (**Ctrl+1** / **Ctrl+2** / **Ctrl+3** also switch). Inside, the two are still separate programs on their usual ports (8766 and 8765) with the same pages as `recognize.bat` and `label.bat`. The tracker keeps running while you're on the Labeling tab, so **Collect faces for labeling** goes on collecting. If either is already open from its .bat, the tab says so and asks you to close that copy (a copy started on its own doesn't let other pages show it, so the window can't), rather than starting a second one on the same data. Both tabs are ready about 10 seconds after starting; closing the window stops everything.
 
-- **Build it** with **build_app.bat**; see **Building FaceRecognizer.exe** below for the full steps. Or download a ready-made one from GitHub **Releases**.
+- **Build it** with **build_app.bat**; see **Building the app** below for the full steps on Windows, macOS and Linux. Or download a ready-made one from GitHub **Releases**.
 - **Keep it in this folder.** The .exe carries only the code and pages. It uses the `models\` and `data\` folders beside it, so it shares labels with the .bat launchers and git. Rebuild it after changing any `.py`, `.html` or `.js` file.
-- **The window** is Edge WebView2, which is part of Windows 11. The camera and microphone are allowed for the app's own pages without a prompt. The window remembers each page's options and the per-person baselines in `%APPDATA%\FaceLabels\webview\`, separately from your browser's. Messages and errors go to `%APPDATA%\FaceLabels\app.log`.
+- **The window** is Edge WebView2 (part of Windows 11), WebKit on macOS, and Qt's web view on Linux. On Windows the camera and microphone are allowed for the app's own pages without a prompt; macOS asks once for the app. The window remembers each page's options and the per-person baselines in `%APPDATA%\FaceLabels\webview\`, separately from your browser's. Messages and errors go to `%APPDATA%\FaceLabels\app.log`.
 - **Settings** gathers every option in sections: App (version, Check for updates, and buttons that open the `data` folder and `%APPDATA%\FaceLabels`), Face tracking (camera, display, expression and signals, recognition, alerts and presence log: tick who to be alerted about in a list of everyone known, plus Unknown), Labeling, Web search (enter or remove your own keys) and Describe photo (which model describes photos; download the built-in one). Changes apply at once and are remembered between runs; sections have **Reset to defaults**. The same options stay on the Face tracking and Labeling tabs too, and the two always agree. Every Face tracking option is now remembered between runs (before, only some were).
 - **Check for updates** (top right of the window) asks GitHub for the latest release, only when you click it, and offers to open its download page if it's newer.
 - **If the camera is "busy" or missing**, another app has it, often the tracker still open in a browser tab, which starts the camera by itself. Close that tab (or the other app) and press **Start camera** again.
 
-### Building FaceRecognizer.exe
+### Building the app (Windows, macOS, Linux)
 
-You need Windows 10 or 11 (64-bit), an internet connection for the first build, and about 2 GB of free disk space.
+`build_exe.py` builds the app with PyInstaller for the system it runs on: it can't build for another one, so build each
+on its own system (or let GitHub do all three, below). Every build packs in the page files (`tracker_ui.html`/`.js`,
+`label_ui.html`/`.js`, `app_ui.html`/`.js`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and
+ONNX Runtime's own files, and leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses (with
+PyTorch the .exe was 646 MB). The app carries code and pages only, never models or `data`: it downloads the models on
+first start. Its work files go in `face-recognizer/build/`, which git ignores; delete it any time. A build takes
+2–6 minutes and needs about 2 GB of free disk space and an internet connection the first time.
 
-1. **Get the code with its files.** Install [Git](https://git-scm.com) and [Git LFS](https://git-lfs.com), then in a terminal:
+**First, on every system: get the code with its files.** Install [Git](https://git-scm.com) and
+[Git LFS](https://git-lfs.com), then:
+```
+git lfs install
+git clone https://github.com/SingularityResearch/facial-recognition.git
+cd facial-recognition/face-recognizer
+```
+Without Git LFS the models arrive as small placeholder files; the setup step below replaces them by downloading the
+real ones (`fetch_models.py`). `data` isn't in the repository: it's created empty on first start.
+
+#### Windows 10/11 (64-bit) → `FaceRecognizer.exe`
+
+1. **Run `setup.bat` once.** It installs Python 3.12 (with winget) and the libraries in `requirements.txt`, downloads
+   any missing face models, and checks that they load. All the .bat files use that Python 3.12
+   (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`).
+2. **Close FaceRecognizer.exe if it's running.** Windows locks a running .exe, so the new one can't be copied over it.
+3. **Double-click `build_app.bat`.** It installs `requirements-build.txt` (`requirements.txt` plus PyInstaller), runs
+   `build_exe.py`, and copies the result to `face-recognizer\FaceRecognizer.exe` (about 210 MB).
+4. **Try it.** Double-click `FaceRecognizer.exe`. Both tabs should be ready in about 10 seconds. If a tab says it
+   couldn't start, the reason is in `%APPDATA%\FaceLabels\app.log`.
+
+The .exe isn't code-signed, so Windows SmartScreen may warn the first time it runs (**More info → Run anyway**).
+
+#### macOS 14+ on Apple Silicon → `FaceRecognizer.app`
+
+1. **Python 3.12:** `brew install python@3.12` ([Homebrew](https://brew.sh)). Intel Macs can't build or run it: the
+   recognition libraries have no Intel Mac builds.
+2. **Run `./setup.sh` once** (a `.venv` with the pinned libraries, then the models).
+3. **Build:**
    ```
-   git lfs install
-   git clone https://github.com/SingularityResearch/facial-recognition.git
-   cd facial-recognition\face-recognizer
+   .venv/bin/python -m pip install -r requirements-build.txt
+   .venv/bin/python build_exe.py
    ```
-   Without Git LFS the models arrive as small placeholder files; `setup.bat` (next step) replaces them by downloading the real ones (`fetch_models.py`). `data\` isn't in the repository: it's created empty on first start.
-2. **Run `setup.bat` once.** It installs Python 3.12 (with winget) and the libraries in `requirements.txt`, downloads any missing face models (`fetch_models.py`), and checks that they load. All the .bat files use that Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`).
-3. **Close FaceRecognizer.exe if it's running.** Windows locks a running .exe, so the new one can't be copied over it.
-4. **Double-click `build_app.bat`.** It:
-   1. installs the pinned libraries in `requirements-build.txt` (`requirements.txt` plus PyInstaller) into that Python;
-   2. builds a single windowed .exe from `app.py` with PyInstaller (`build_exe.py`, the same script GitHub's build runs). It packs in the page files (`tracker_ui.html`/`.js`, `label_ui.html`/`.js`, `app_ui.html`/`.js`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
-   3. copies the result to `face-recognizer\FaceRecognizer.exe` (about 210 MB).
+   The app is `build/dist/FaceRecognizer.app`. `build_exe.py` writes into its `Info.plist` why it asks for the camera
+   and microphone (without that, macOS refuses them), that it needs macOS 14, and its version.
+4. **Try it:** `open build/dist/FaceRecognizer.app`. macOS asks once for the camera and microphone. A build made
+   on your own Mac runs there as it is; to give it to others, sign and notarize it (next step), or they must
+   right-click it and choose **Open** the first time.
+5. **Sign and notarize (optional):** with an Apple Developer account, `packaging/macos/sign_and_notarize.sh
+   build/dist/FaceRecognizer.app` signs it with your *Developer ID Application* certificate (hardened runtime, the
+   camera and microphone entitlements in `packaging/macos/entitlements.plist`) and has Apple notarize it. It reads the
+   certificate and an App Store Connect API key from the environment variables listed at its top; CI does this by
+   itself once they're set as repository secrets.
 
-   It takes 2–6 minutes. Its work files go in `face-recognizer\build\`. Git ignores that folder and the .exe, and you can delete the folder any time.
-5. **Try it.** Double-click `FaceRecognizer.exe`. Both tabs should be ready in about 10 seconds. If a tab says it couldn't start, the reason and the details are in `%APPDATA%\FaceLabels\app.log`.
+The built app keeps its models and `data` in `~/Library/Application Support/FaceRecognizer` and what's private to you
+in `~/Library/Application Support/FaceLabels` (a signed app can't change itself).
 
-Every push to GitHub also builds the .exe on GitHub's Windows machines once the tests pass: the run's **FaceRecognizer-exe** artifact (kept 14 days) holds it and `BUILD-INFO.json` (commit and SHA-256), for testing before a release.
+#### Linux (Ubuntu 22.04 or later, x86_64) → the `FaceRecognizer` folder
 
-**Rebuild after any change** to a `.py`, `.html` or `.js` file: the .exe carries its own copy of the code and pages. The models and `data\` aren't inside it, so new labels and models need no rebuild.
+1. **Python 3.12 and the build's system libraries:**
+   ```
+   sudo apt install python3.12 python3.12-venv libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+     libxcb-keysyms1 libxcb-shape0 libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libasound2t64
+   ```
+   (`libasound2` before Ubuntu 24.04.)
+2. **Run `./setup.sh` once** (a `.venv` with the pinned libraries and, on Linux, `pywebview[qt]` for the app window;
+   then the models).
+3. **Build:**
+   ```
+   .venv/bin/python -m pip install -r requirements-build.txt
+   .venv/bin/python build_exe.py
+   ```
+   The app is the folder `build/dist/FaceRecognizer/`; `FaceRecognizer` inside it starts it. `build_exe.py` leaves the
+   graphics libraries (Mesa, OpenGL/EGL, Wayland, X11) to the system: they must match its drivers.
+4. **Try it:** `build/dist/FaceRecognizer/FaceRecognizer`. To share it, pack the folder:
+   `tar czf FaceRecognizer-linux-x64.tar.gz -C build/dist FaceRecognizer`. A build runs on the Ubuntu release it was
+   built on and later ones, so build on the oldest you want to support (CI uses 22.04).
 
-**Run the window without building:** `python app.py` from `face-recognizer\`, using the Python 3.12 above (it needs pywebview, which `setup.bat` installs). This gives the same window and tabs, straight from the source files.
+The built app keeps its models and `data` in `~/.local/share/FaceRecognizer` and what's private to you in
+`~/.local/share/FaceLabels`. If its window can't draw (no working OpenGL), it opens in your web browser instead.
 
-**Making a release** (for GitHub Releases):
-1. Raise `VERSION` in `app.py` (for example `"1.10"`) and build.
-2. Make a folder with only `FaceRecognizer.exe` and a short `README.txt` for new users. **Never include `data\`**: it holds your faces, names and labels. A new user's copy starts empty.
-3. Zip it as `FaceRecognizer-win64.zip` and attach it to a release tagged `v1.10`.
+#### Builds on GitHub, and making a release
 
-Leave out the models: the .exe downloads them on first start (`fetch_models.py`): YuNet, eDifFIQA and the expression model from OpenCV Zoo on Hugging Face, the face and pose landmarkers from Google's MediaPipe storage, ArcFace from InsightFace's own release (just that file out of their `buffalo_l.zip`; each the very same file, checked by SHA-256; a model already there is checked by SHA-256 too, once, and then only again when its size or date changes: `models\.verified.json`), and Wav2Small, plus any of the others whose source fails or has changed, from the release `models-v1`. So that release must stay, and the repository must stay public. If a model changes, publish a new models release (for example `models-v2`) and update `TAG` and the file list in `fetch_models.py`. The .exe isn't code-signed, so Windows SmartScreen may warn the first time it runs (**More info → Run anyway**).
+Every push builds the app on GitHub's Windows, macOS and Linux machines once the tests pass on all three
+(`.github/workflows/checks.yml`). Each run keeps, for 14 days, `FaceRecognizer-windows-x64` (the .exe),
+`FaceRecognizer-macos-arm64` (the zipped .app; signed and notarized when the repository's signing secrets are set) and
+`FaceRecognizer-linux-x64` (the .tar.gz), each with `BUILD-INFO.json` (commit, run, SHA-256). Download one with
+`gh run download <run id> -R SingularityResearch/facial-recognition -n FaceRecognizer-linux-x64`, or, with an older
+`gh` that refuses that ("would result in path traversal"), with
+`gh api repos/SingularityResearch/facial-recognition/actions/artifacts/<artifact id>/zip > build.zip`.
+
+To make a release:
+1. Raise `VERSION` in `app.py` (for example `"1.10"`), commit, push, and wait for the run to pass. Test its builds.
+2. From that run's artifacts: zip `FaceRecognizer.exe` with a short `README.txt` for new users as
+   `FaceRecognizer-win64.zip`; take `FaceRecognizer-macos-arm64.zip` and `FaceRecognizer-linux-x64.tar.gz` as they
+   are; list their SHA-256 in `SHA256SUMS.txt`. **Never include `data`**: it holds your faces, names and labels. A new
+   user's copy starts empty.
+3. Attach the four files to a release tagged `v1.10` at that commit, with notes saying how to start it on each system.
+
+Leave out the models: the app downloads them on first start (`fetch_models.py`): YuNet, eDifFIQA and the expression
+model from OpenCV Zoo on Hugging Face, the face and pose landmarkers from Google's MediaPipe storage, ArcFace from
+InsightFace's own release (just that file out of their `buffalo_l.zip`; each the very same file, checked by SHA-256; a
+model already there is checked by SHA-256 too, once, and then only again when its size or date changes:
+`models/.verified.json`), and Wav2Small, plus any of the others whose source fails or has changed, from the release
+`models-v1`. So that release must stay, and the repository must stay public. If a model changes, publish a new models
+release (for example `models-v2`) and update `TAG` and the file list in `fetch_models.py`.
+
+**Rebuild after any change** to a `.py`, `.html` or `.js` file: the app carries its own copy of the code and pages.
+The models and `data` aren't inside it, so new labels and models need no rebuild.
+
+**Run the window without building:** `python app.py` from `face-recognizer` with the Python above (Windows), or
+`./start.sh` (macOS, Linux). This gives the same window and tabs, straight from the source files.
 
 ### Running it as a plain web app (no .exe)
 
@@ -363,6 +443,8 @@ Measured on this PC (AMD Ryzen AI Max+ 395: 16-core CPU, Radeon 8060S GPU, XDNA 
 
 The recognizer, quality and expression models use the GPU automatically (`onnxruntime-directml`, installed by setup.bat). Face detection (YuNet) stays on the CPU, where it takes a few milliseconds, as do the optional MediaPipe face-shape cues (about 10 ms a face), body posture (about 15 ms a frame) and the voice model (a few milliseconds per 2-second clip). To choose explicitly, set `FACE_DEVICE` to `gpu`, `cpu` or `npu` before starting. `npu` needs the Ryzen AI environment's Python (`X:\ProgramData\miniconda3\envs\ryzen-ai-1.8.0\python.exe`); `tools/hw_bench.py` compiles the NPU model and re-measures all three. At startup the tracker runs each model once (so the first camera frame isn't the slow one) and lists which processor runs it and how long that first run took.
 
+**macOS and Linux:** there's no DirectML, so the models run on the CPU (OpenCV), the path measured above (about 12 ms a face here; 58 ms on a laptop CPU in a Linux test). `FACE_DEVICE=gpu` tries Apple's CoreML (macOS) or NVIDIA CUDA (Linux, with `onnxruntime-gpu` installed instead of `onnxruntime`); they aren't used by default until `tools/hw_bench.py` has shown they give the same results.
+
 **Bigger models tried:** AdaFace IR-101 (WebFace12M, `tools/get_adaface.py` converts the official weights) ran at 8.5 ms per face on the GPU but didn't beat ArcFace on your photos: 95.5% vs 99.4% of labeled faces correct, about the same on blurry frames. Combining both models didn't help either (`tools/eval_models.py` reproduces the comparison).
 
 ## Switching recognition models
@@ -425,7 +507,7 @@ python -m ruff check .         # Python checker (ruff.toml)
 python -m pytest tests -q      # Python tests: no models, camera or network needed; never touch your data
 ```
 
-GitHub runs the same on every push (`.github/workflows/checks.yml`). The tests use a made-up `data` folder and
+On macOS and Linux use `.venv/bin/python` (after `./setup.sh`). GitHub runs the same on every push, on Windows, macOS and Linux, and then builds the app for all three (`.github/workflows/checks.yml`; see **Building the app**). The tests use a made-up `data` folder and
 local test servers; `tests/test_thresholds.py` fails if a measured threshold changes, as a reminder to re-measure.
 
 ## More documentation

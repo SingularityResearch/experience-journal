@@ -3,7 +3,8 @@
 Exported 2026-10-29 from the Claude Project **"Facial-Recognition"**
 (*Detect known faces and provide for the management and labeling of new or unknown faces.*).
 Revised the same day to match the code and data as they now stand, and kept up to date since
-(last: 2026-11-09, v1.9: the second round of review fixes, one person's export and forget; see §7 "Releases" and §10).
+(last: 2026-11-10, v1.9 released for Windows, macOS and Linux: review fixes, one person's export and forget, the
+alert inbox; see §2 "macOS and Linux", §7 "Releases" and §10).
 
 This file collects everything established across the Project's chats so a coding assistant or a human
 opening the repo in VS Code has the full background: what was built, why, where it lives, the measured
@@ -39,12 +40,12 @@ with Face tracking, Labeling and (since v1.8) Settings tabs, each program still 
 
 ---
 
-## 2. Where it lives (Windows)
+## 2. Where it lives (Windows; macOS and Linux below)
 
 ```
 X:\source\facial-recognition\
 ├── AGENTS.md (the guide), CLAUDE.md (reads AGENTS.md), PROJECT_CONTEXT.md, README.md
-├── .github\workflows\checks.yml   CI: node tests, ruff, pytest
+├── .github\workflows\checks.yml   CI: node tests, ruff, pytest on Windows, macOS, Linux; then builds for all three
 ├── Real-Time Facial Emotion Recognition.md   expression design review (LM Studio export)
 ├── docs\
 │   └── WHY_LAYERED_EXPRESSION.md            why expression reading is layered, with references
@@ -65,7 +66,12 @@ X:\source\facial-recognition\
     ├── settings_bridge.js        the app's Settings tab <-> each page's settings (postMessage; served by both servers)
     ├── app.py, app_ui.html, app_ui.js   FaceRecognizer.exe: one window, three tabs (Face tracking, Labeling,
     │                             Settings); the tab page on 8764
-    ├── build_app.bat             PyInstaller one-file build of app.py → FaceRecognizer.exe
+    ├── build_app.bat             Windows: runs build_exe.py → FaceRecognizer.exe
+    ├── build_exe.py              the app build for the system it runs on (.exe, .app, Linux folder); CI runs it too
+    ├── desktop.py                open a folder, draw the eye to the window (Windows, macOS, Linux)
+    ├── alerts.py                 the tracker's alert inbox (%APPDATA%\FaceLabels\alerts.json)
+    ├── setup.sh, start.sh, FaceRecognizer.command   macOS and Linux: .venv setup, start the app
+    ├── packaging\macos\          entitlements.plist, sign_and_notarize.sh (CI, with the Apple secrets)
     ├── websearch.py              Web search: Amazon Rekognition + Google Cloud Vision (on click; own keys in %APPDATA%)
     ├── describe.py               Describe photo: LM Studio or any OpenAI-style server (Settings), else florence.py
     ├── florence.py               built-in Florence-2 large describer (ONNX int8, CPU; 0.8 GB on request)
@@ -129,7 +135,20 @@ X:\source\facial-recognition\
 Outside the project, `%APPDATA%\FaceLabels\` holds what is private to this computer's user: Web search keys and
 monthly counts, `describe.json` (describer settings, optional API key), `descriptions.json`, `webcam\` (Collect faces:
 each face alone with some room around it, others greyed out; whole frames until v1.9),
-`presence\` (opt-in log), `webview\` (the .exe window's browser storage: page options, baselines, usual looks), `app.log`.
+`presence\` (opt-in log), `alerts.json` (the alert inbox), `webview\` (the .exe window's browser storage: page options,
+baselines, usual looks), `app.log`.
+
+### macOS and Linux (since 2026-11-10, v1.9)
+
+The same code runs on macOS 14+ on Apple Silicon (the onnxruntime and MediaPipe wheels have no Intel Mac builds)
+and on Linux (built on Ubuntu 22.04, tested on Ubuntu 26.04 on a real laptop and 24.04 in WSL). From the code:
+`./setup.sh`, `./start.sh`. Built apps keep models and `data` in `~/Library/Application Support/FaceRecognizer` or
+`~/.local/share/FaceRecognizer` (the app itself is read-only) and the private folder in `.../FaceLabels` beside it.
+Recognition runs on the CPU (OpenCV) there, as measured; CoreML and CUDA only with `FACE_DEVICE=gpu`, not yet
+measured. The Linux window is Qt's web view: without working OpenGL it can't draw, so the app tries it in a child
+process first (`--probe-window`) and otherwise opens the browser; the Linux build leaves the graphics libraries to
+the system (bundled ones broke OpenGL on Ubuntu 24.04). Build steps for all three: face-recognizer/README.md,
+"Building the app".
 
 `face-recognizer\data_backup_20261029\` is a full copy of `data\` from before the per-face migration
 (old format, 3.8 MB faces.npz).

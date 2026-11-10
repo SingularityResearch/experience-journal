@@ -23,7 +23,7 @@ import localguard
 import paths
 
 TITLE = "Face Recognizer"
-VERSION = "1.7"                                    # this build; GitHub release tags are "v" + VERSION
+VERSION = "1.8"                                    # this build; GitHub release tags are "v" + VERSION
 REPO = "SingularityResearch/facial-recognition"
 HOME = paths.HOME                                  # %APPDATA%\FaceLabels: private, outside the project
 

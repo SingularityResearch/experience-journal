@@ -1,4 +1,4 @@
-# Versions known to work together (FaceRecognizer 1.7, Python 3.12, Windows 11). setup.bat installs these.
+# Versions known to work together (FaceRecognizer 1.8, Python 3.12, Windows 11). setup.bat installs these.
 # OpenCV: only opencv-contrib-python. mediapipe needs it, and it contains everything opencv-python has; having
 # both installed at different versions breaks cv2 (they install the same files).
 opencv-contrib-python==5.0.0.93

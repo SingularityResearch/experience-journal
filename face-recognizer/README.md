@@ -67,9 +67,9 @@ You need Windows 10 or 11 (64-bit), an internet connection for the first build, 
 **Run the window without building:** `python app.py` from `face-recognizer\`, using the Python 3.12 above (it needs pywebview, which `setup.bat` installs). This gives the same window and tabs, straight from the source files.
 
 **Making a release** (for GitHub Releases):
-1. Raise `VERSION` in `app.py` (for example `"1.7"`) and build.
+1. Raise `VERSION` in `app.py` (for example `"1.9"`) and build.
 2. Make a folder with only `FaceRecognizer.exe` and a short `README.txt` for new users. **Never include `data\`**: it holds your faces, names and labels. A new user's copy starts empty.
-3. Zip it as `FaceRecognizer-win64.zip` and attach it to a release tagged `v1.7`.
+3. Zip it as `FaceRecognizer-win64.zip` and attach it to a release tagged `v1.9`.
 
 Leave out the models: the .exe downloads them on first start (`fetch_models.py`): YuNet, eDifFIQA and the expression model from OpenCV Zoo on Hugging Face, the face and pose landmarkers from Google's MediaPipe storage, ArcFace from InsightFace's own release (just that file out of their `buffalo_l.zip`; each the very same file, checked by SHA-256), and Wav2Small, plus any of the others whose source fails or has changed, from the release `models-v1`. So that release must stay, and the repository must stay public. If a model changes, publish a new models release (for example `models-v2`) and update `TAG` and the file list in `fetch_models.py`. The .exe isn't code-signed, so Windows SmartScreen may warn the first time it runs (**More info → Run anyway**).
 

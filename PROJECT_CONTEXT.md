@@ -3,7 +3,7 @@
 Exported 2026-10-29 from the Claude Project **"Facial-Recognition"**
 (*Detect known faces and provide for the management and labeling of new or unknown faces.*).
 Revised the same day to match the code and data as they now stand, and kept up to date since
-(last: 2026-11-09, v1.7 with the Settings tab; see §7 "Releases" and §10).
+(last: 2026-11-09, v1.8 with the Settings tab, tests and CI; see §7 "Releases" and §10).
 
 This file collects everything established across the Project's chats so a coding assistant or a human
 opening the repo in VS Code has the full background: what was built, why, where it lives, the measured
@@ -32,10 +32,10 @@ A fully local face-recognition system for a USB webcam, built for Chris:
 
 Nothing leaves the machine. No photos or face data are sent anywhere, except one face or photo when the
 owner clicks **Web search** in the labeling tool: the face goes to Amazon Rekognition and the photo to Google Cloud Vision (never automatic),
-and photos to be described when **Describe photo** is pointed at a model server on another device (Settings tab, since v1.7).
+and photos to be described when **Describe photo** is pointed at a model server on another device (Settings tab, since v1.8).
 
 Since 2026-11-08 the tracker and the labeling tool also run together as **FaceRecognizer.exe** (`app.py`): one window
-with Face tracking, Labeling and (since v1.7) Settings tabs, each program still on its own server and page.
+with Face tracking, Labeling and (since v1.8) Settings tabs, each program still on its own server and page.
 
 ---
 
@@ -418,7 +418,7 @@ Releases (FaceRecognizer.exe, GitHub Releases; `models-v1` holds the model files
 | v1.5 | Nov 9 | Describe photo (LM Studio; built-in Florence-2 fallback), stacks of the same picture |
 | v1.5.1 | Nov 9 | Models fetched from their publishers (OpenCV Zoo, MediaPipe, InsightFace), `models-v1` as fallback |
 | v1.6 | Nov 9 | All of `data/` taken out of the repository and its history (repo restarted as one commit); Amazon keys enterable in the app; "No photos yet" welcome |
-| v1.7 | Nov 9 (not yet released) | Settings tab (every option in sections, `settings_bridge.js`), all tracker options remembered, alert list with Unknown, Describe photo server/model/API key settings (any OpenAI-style server, other devices with a warning) |
+| v1.8 | Nov 9 | Settings tab (every option in sections, `settings_bridge.js`), all tracker options remembered, alert list with Unknown, Describe photo server/model/API key settings (any OpenAI-style server, other devices with a warning); security fixes from the review; Python tests, CI with ruff and pytest, `labels.py` split, **Why?** for unreadable files. v1.6 release removed (v1.8 is the only app release; `models-v1` stays for first-start downloads) |
 
 ---
 
@@ -556,7 +556,7 @@ individual, and of interactions between identified people. Step 1 (done): per-pe
 
 ### Review of 2026-11-09 (code, security, tests): to do, by priority
 
-Done the same day (v1.7, before release), all checked in the running app:
+Done the same day (in v1.8, before release), all checked in the running app:
 - **Framing:** every answer of the two programs carries `frame-ancestors` (only themselves and the app's tab page);
   the tab page can't be framed. A page on another local port framing the labeling tool was blocked.
   `settings_bridge.js` also checks the parent's real origin (`location.ancestorOrigins`).
@@ -576,7 +576,7 @@ Still open (security, low): consider refusing `Sec-Fetch-Site: cross-site` in `l
 load `/thumb` and `/photo` as images and learn that the app runs and how many faces it has, though not see them);
 keys in plain files (DPAPI possible); a committed PyInstaller spec file.
 
-Structure and tests: done the same evening (branch `v1.8-quality`):
+Structure and tests: done the same evening (in v1.8):
 - **Tests:** `face_id` no longer stops on import without models (programs call `require_models()`); `paths.py`
   gives one `ROOT`/`HOME` with `FACE_ROOT`/`FACE_HOME` overrides and one `atomic_write`. 64 pytest tests (request
   checks, describe settings, key never sent elsewhere, redirects, Web search keys and caps under 20 parallel

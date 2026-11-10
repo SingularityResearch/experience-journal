@@ -5,7 +5,10 @@ Each window is an exponentially weighted moving average of a signal's z-scores, 
 (quality 0-1) and correct for irregular gaps between readings. Besides its value, a window reports its support: the
 decayed sum of the trust it has seen. Support falls while a sensor is silent (phone in a pocket, face off camera),
 which tells later layers how much to rely on it. A short history of each window is kept, so the value a little
-earlier (the body reacts seconds to minutes after what you saw) can be read back.
+earlier (the body reacts seconds to minutes after what you saw), or at a moment that has passed, can be read back.
+
+A reading that arrives late (older than the newest one, from a device that buffered while the hub was away) counts
+with the weight it would have left by now, as if it had arrived on time; the saved history isn't rewritten.
 """
 import math
 from collections import deque
@@ -30,6 +33,8 @@ class EWMA:
         self.t = t if self.t is None else max(self.t, t)
 
     def add(self, t, x, quality=1.0):
+        if self.t is not None and t < self.t:      # late: it would have decayed this much by now
+            quality *= math.exp(-(self.t - t) / self.tau)
         self._decay_to(t)
         if quality > 0:
             self.mean = (self.mean * self.support + quality * x) / (self.support + quality)
@@ -60,11 +65,19 @@ class SignalWindows:
             while self.history and t - self.history[0][0] > HISTORY_KEEP:
                 self.history.popleft()
 
+    @property
+    def latest(self):
+        """Time of the newest reading (None before any)."""
+        return next(iter(self.windows.values())).t
+
     def value(self, t, lag=0.0):
-        """{window: (mean, support)} at t - lag; None if the history doesn't reach back that far."""
-        if lag <= 0:
-            return {n: w.value(t) for n, w in self.windows.items()}
-        target = t - lag
+        """{window: (mean, support)} at t - lag, from readings up to then only; None if the history doesn't reach
+        back that far."""
+        target = t - max(0.0, lag)
+        if self.latest is None:
+            return None
+        if target >= self.latest:
+            return {n: w.value(target) for n, w in self.windows.items()}
         best = None
         for ht, vals in reversed(self.history):
             if ht <= target:

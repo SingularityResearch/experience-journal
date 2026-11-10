@@ -6,7 +6,11 @@ person's recent readings, so a rare spike doesn't warp it. It is kept per situat
 company) and overall; the situation's normal is used once it has enough readings, the overall one until then.
 It adapts slowly: one reading is kept per SAMPLE_EVERY seconds, the last KEEP of them (about 2 days of waking time
 at the defaults). The caller pauses learning during unusual stretches (`learn(..., unusual=True)` does nothing),
-so a bad week doesn't become the new normal.
+so a bad stretch doesn't become the new normal (the engine pauses each signal separately, and for a limited time).
+
+The spread never collapses to zero: a signal that is usually exactly 0 (a laugh, a blink count) has a MAD of 0, so
+the mean absolute deviation (scaled to match a standard deviation) is used instead, and never less than the
+signal's resolution (the smallest step the sensor reports), when the sensor states one.
 """
 import time
 from collections import deque
@@ -17,6 +21,7 @@ SAMPLE_EVERY = 30.0      # seconds between readings kept for the normal (reading
 KEEP = 5000              # readings kept per normal
 MIN_N = 120              # readings a normal needs before it is used (about an hour at SAMPLE_EVERY)
 MAD_TO_SD = 1.4826       # MAD x this = standard deviation, for normally distributed data
+MEANAD_TO_SD = 1.2533    # mean absolute deviation x this = standard deviation, for normally distributed data
 MIN_SPREAD = 1e-6        # a signal that never varies still gets a usable (tiny) spread
 PARTS_OF_DAY = ((0, "night"), (6, "morning"), (12, "afternoon"), (18, "evening"))
 
@@ -34,9 +39,10 @@ def situation(t, company):
 class RobustNormal:
     """Median and spread of the readings kept for one person, signal and situation."""
 
-    def __init__(self, keep=KEEP, every=SAMPLE_EVERY):
+    def __init__(self, keep=KEEP, every=SAMPLE_EVERY, resolution=0.0):
         self.values = deque(maxlen=keep)
         self.every = every
+        self.resolution = float(resolution or 0.0)
         self.last_t = None
         self._stats = None
         self._new = 0            # readings kept since the median was last worked out
@@ -60,8 +66,11 @@ class RobustNormal:
         if self._stats is None and self.values:
             v = np.fromiter(self.values, float)
             med = float(np.median(v))
-            spread = float(np.median(np.abs(v - med))) * MAD_TO_SD
-            self._stats = (med, max(spread, MIN_SPREAD, abs(med) * 1e-4))
+            dev = np.abs(v - med)
+            spread = float(np.median(dev)) * MAD_TO_SD
+            if spread <= 0:              # more than half the readings are the same value (usually 0)
+                spread = float(dev.mean()) * MEANAD_TO_SD
+            self._stats = (med, max(spread, self.resolution, MIN_SPREAD, abs(med) * 1e-4))
             self._new = 0
         return self._stats
 
@@ -69,13 +78,14 @@ class RobustNormal:
 class Baselines:
     """All normals: (person, signal, situation) and (person, signal, overall)."""
 
-    def __init__(self, keep=KEEP, every=SAMPLE_EVERY, min_n=MIN_N):
+    def __init__(self, keep=KEEP, every=SAMPLE_EVERY, min_n=MIN_N, resolution=None):
         self.keep, self.every, self.min_n = keep, every, min_n
+        self.resolution = dict(resolution or {})     # signal -> smallest step its sensor reports (optional)
         self.normals = {}
 
     def _normal(self, key):
         if key not in self.normals:
-            self.normals[key] = RobustNormal(self.keep, self.every)
+            self.normals[key] = RobustNormal(self.keep, self.every, self.resolution.get(key[1], 0.0))
         return self.normals[key]
 
     def learn(self, person, signal, value, t, company=False, unusual=False):
@@ -95,7 +105,8 @@ class Baselines:
         return None
 
     def z(self, person, signal, value, t, company=False):
-        """How many spreads value is from this person's normal (None while there's no normal yet)."""
+        """How many spreads value is from this person's normal (None while there's no normal yet). Not clipped:
+        the engine clips it (Z_CLIP) before smoothing, and shows both."""
         nm = self.normal(person, signal, t, company)
         if nm is None:
             return None

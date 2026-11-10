@@ -4,6 +4,7 @@ import random
 
 from fusion.away import away_from_normal
 from fusion.baselines import MIN_N, Baselines, RobustNormal, situation
+from fusion.engine import MAX_PAUSE, Z_CLIP, Fusion
 from fusion.simulate import START
 from fusion.windows import EWMA, SignalWindows
 
@@ -82,3 +83,76 @@ def test_away_contributions_add_up_exactly():
     assert math.isclose(sum(r["shares"].values()), 1.0)
     assert "off" not in r["contributions"] and r["signals"] == 3
     assert away_from_normal({})["score"] is None
+
+
+def test_a_signal_that_is_usually_zero_still_gets_a_usable_spread():
+    rng = random.Random(2)
+    nm = RobustNormal(every=0)
+    for k in range(400):
+        nm.add(0.0 if rng.random() < 0.9 else 1.0, k)
+    med, spread = nm.stats()
+    assert med == 0.0 and 0.05 < spread < 0.3                       # mean absolute deviation, not 1e-6
+    assert RobustNormal(every=0, resolution=0.5).stats() is None
+    flat = RobustNormal(every=0, resolution=0.5)
+    for k in range(10):
+        flat.add(3.0, k)
+    assert flat.stats()[1] == 0.5                                   # never finer than the sensor's own step
+
+
+def _steady(f, t, steps, hr=70.0, rng=None):
+    rng = rng or random.Random(0)
+    for _ in range(steps):
+        f.add("A", "hr", t, hr + rng.gauss(0, 3))
+        f.add("A", "smile", t, 0.3 + rng.gauss(0, 0.1))
+        t += 30
+    return t
+
+
+def test_one_moved_sensor_pauses_only_its_own_normal_and_not_for_ever():
+    f = Fusion()
+    rng = random.Random(1)
+    t = _steady(f, MORNING, 360, rng=rng)                           # 3 hours at the usual 70
+    smile_before = f.baselines.normals[("A", "smile", None)].n
+    t = _steady(f, t, 120, hr=90.0, rng=rng)                        # 1 hour: heart rate sensor moved (+20)
+    assert f.last[("A", "hr")]["learning"] == "paused"
+    assert f.baselines.normal("A", "hr", t)[0] < 72                 # not learned during the pause ...
+    assert f.baselines.normals[("A", "smile", None)].n > smile_before + 100   # ... but smile kept learning
+    t = _steady(f, t, int((MAX_PAUSE + 4 * 3600) / 30), hr=90.0, rng=rng)
+    assert f.baselines.normals[("A", "hr", None)].stats()[0] > 85   # after MAX_PAUSE the normal follows
+    statuses = {r["learning"] for r in f.recent[("A", "hr")]}
+    assert statuses <= {"relearning", "learning"}
+
+
+def test_z_scores_are_clipped_before_smoothing():
+    f = Fusion()
+    t = _steady(f, MORNING, 200)
+    z = f.add("A", "hr", t, 70 + 300)                               # a wild glitch
+    assert z > 50                                                   # shown as it was ...
+    m, _ = f.signals[("A", "hr")].value(t)["30s"]
+    assert m <= Z_CLIP                                              # ... but counted as at most Z_CLIP
+
+
+def test_a_late_reading_counts_as_if_it_had_arrived_on_time():
+    on_time, late = EWMA(60), EWMA(60)
+    on_time.add(0, 1.0)
+    on_time.add(30, 2.0)
+    on_time.add(60, 3.0)
+    late.add(0, 1.0)
+    late.add(60, 3.0)
+    late.add(30, 2.0)                                               # arrives after the newer one
+    assert math.isclose(on_time.value(60)[0], late.value(60)[0])
+    assert math.isclose(on_time.value(60)[1], late.value(60)[1])
+
+
+def test_a_check_ins_features_use_readings_up_to_it_only():
+    def run(spike_after):
+        f = Fusion()
+        t = _steady(f, MORNING, 300)
+        f.checkin("A", t - 15, {"energized": 5})
+        if spike_after:
+            for k in range(4):
+                f.add("A", "hr", t + k * 30, 140.0)                 # readings after the check-in
+        _steady(f, t + 120, 20)
+        assert not f.pending
+        return f.checkins[-1]["features"][0.0]["hr:30s"]
+    assert run(False) == run(True)

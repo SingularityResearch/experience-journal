@@ -1,8 +1,10 @@
 """
 "Away from your normal": the fused score before there are any check-ins (docs/DESIGN.md §6, layer 2).
 
-The score is the trust-weighted root mean square of the signals' z-scores: 0 is exactly your normal, 1 is one
-typical spread away on average, 2 is far. It has no direction: it says how unusual the moment is, not what it means.
+The score is the trust-weighted root mean square of the signals' smoothed z-scores (by default their 10-minute
+windows): 0 is exactly your normal; 1 means the signals have sat, on average, one typical spread of a single reading
+away from it for the whole window, which is already unusual (the average of ten minutes of ordinary readings is much
+closer to 0 than a single reading is). It has no direction: it says how unusual the moment is, not what it means.
 Each signal's contribution is exact: the contributions add up to score², so each signal's share of the score is
 its contribution / score².
 """

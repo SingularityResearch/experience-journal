@@ -22,3 +22,11 @@ def fortnight():
     f = Fusion()
     truth = simulate(f, days=14, on_day=on_day)
     return f, truth, START + 7 * 86400
+
+
+@pytest.fixture(scope="session", params=[1, 2])
+def other_fortnight(request):
+    """The same fortnight with other random seeds: a claim that holds on one seed only isn't a finding."""
+    f = Fusion()
+    simulate(f, days=14, seed=request.param)
+    return f

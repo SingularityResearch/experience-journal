@@ -14,7 +14,7 @@ START = time.mktime((2026, 1, 5, 0, 0, 0, 0, 0, -1))     # a Monday, local midni
 WAKE, SLEEP = 7, 23                                      # hours awake (sensors only send while awake)
 
 # How each person's sensors follow their level s (1-7 scale, usual 4): value = base + gain x (s - 4) + noise.
-# Person "B" reacts more in heart rate and less in voice: the family model has to learn each one's own weights.
+# Person "B" reacts more in heart rate and less in voice: the group model has to learn each one's own weights.
 PEOPLE = {
     "A": {"heart_rate": (70, 5.0, 3.0), "speech_rate": (3.8, 0.35, 0.25), "posture": (2.0, 1.2, 2.0),
           "smile": (0.25, 0.0, 0.10)},

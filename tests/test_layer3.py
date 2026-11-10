@@ -47,15 +47,27 @@ def test_a_check_in_pulls_hard():
 
 def test_sensor_models_from_data():
     levels = [(-1) ** k * (k % 5) / 2 for k in range(100)]
-    got = fit_sensor_models(levels, {"hr": [0.8 * x for x in levels], "few": [1.0] * 5 + [None] * 95})
+    got = fit_sensor_models(levels, {"hr": [0.8 * x for x in levels], "few": [1.0] * 5 + [None] * 95,
+                                     "shifted": [0.3 + 0.5 * x for x in levels]})
     assert got["hr"].loading == pytest.approx(0.8) and "few" not in got
+    assert got["shifted"].loading == pytest.approx(0.5) and got["shifted"].offset == pytest.approx(0.3)
+    assert got["shifted"].noise_var < 1e-3                          # the offset isn't mistaken for noise
+
+
+def test_a_sensor_sitting_at_its_offset_moves_nothing():
+    f = DimensionFilter(usual=4.0, spread=1.0, sensors={"hr": SensorModel(0.8, 0.3, offset=0.5)})
+    for k in range(20):
+        f.reading(k * 600, "hr", 0.5)
+    assert f.estimate(20 * 600)["value"] == pytest.approx(4.0)
 
 
 def test_kalman_is_measured_against_layer_2(fortnight):
-    """The rule: layer 3 is used only if it beats layer 2 on held-out data. On the simulated fortnight it doesn't
-    (as of 2026-11-10: error 0.76 vs 0.62); this test keeps that comparison running, whichever way it comes out."""
+    """The rule: layer 3 is used only if it beats layer 2 on held-out data. On simulated fortnights it doesn't yet
+    (2026-11-10, fed every 10 minutes, six seeds: error 0.59-0.67 vs 0.57-0.67, band 79-84% for 70%; fed every
+    30 s it was 0.76 vs 0.63 with 54%); this test keeps that comparison running, whichever way it comes out."""
     f, _, day7 = fortnight
     live = prospective(f, "energized", after=day7)
     assert live["kalman"]["n"] == live["linear"]["n"] > 50
     assert live["kalman"]["corr"] > 0.6                           # it tracks the level ...
     assert live["kalman"]["mae"] is not None                      # ... and its error is on record for the choice
+    assert 0.6 <= live["kalman"]["coverage70"] <= 0.92            # fed every 10 minutes its band is honest

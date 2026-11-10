@@ -68,9 +68,11 @@ def forward_chain(engine, dimension, min_train_days=5, pool=True):
                     results["your last check-in"].append((y, last[p], None))
                 history.setdefault(p, []).append(y)          # later check-ins that day may use this one
                 last[p] = y
-    finally:
+    finally:                                                  # leave the engine's model as it was
         if saved is not None:
             engine.models[dimension] = saved
+        else:
+            engine.models.pop(dimension, None)
     return {name: metrics(pairs) for name, pairs in results.items()}
 
 

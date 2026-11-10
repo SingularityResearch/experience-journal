@@ -34,6 +34,13 @@ def main():
               f"{(r['z'] if r['z'] is not None else float('nan')):6.2f} {r['quality']:6.2f} {r['lag']:5.0f} "
               f"{r.get('contribution', 0.0):+8.2f}")
     print(f"{'':12s} usual {est['usual']:.2f} + contributions = {est['value']:.2f}")
+    print("\nEach contribution is weight x the window's value (read at the signal's lag):")
+    print(f"{'feature':20s} {'value':>7s} {'support':>8s} {'weight':>7s} {'contrib':>8s}")
+    for r in ex["rows"]:
+        for name, ft in r["features"].items():
+            v = f"{ft['value']:7.2f}" if ft["value"] is not None else "missing"
+            print(f"{r['signal'] + ':' + name:20s} {v:>7s} {ft['support']:8.2f} {ft['weight']:+7.2f} "
+                  f"{ft['contribution']:+8.2f}")
     print("\nForward-chained (fit on earlier days, predict the next):")
     for name, m in forward_chain(f, "energized").items():
         cov = f", 70% band holds {m['coverage70']:.0%}" if m["coverage70"] is not None else ""

@@ -4,7 +4,9 @@ A fully local system that recognizes specific people on a webcam and reads facia
 other signals live. The expression side is also a small, honest research testbed: it measures what each
 signal is actually worth on your own face before letting it influence anything.
 
-Everything runs on one Windows PC. No photos, video, audio or face data leave the machine.
+Everything runs on one Windows PC. No photos, video, audio or face data leave the machine unless you send them
+on purpose: the labeling tool's **Web search** (one face or photo, when you click it) and **Describe photo** if
+you point it at a model server on another device.
 
 ## Goals
 
@@ -20,7 +22,8 @@ Everything runs on one Windows PC. No photos, video, audio or face data leave th
 | Part | What it does | Start it |
 |---|---|---|
 | [face-recognizer/](face-recognizer/README.md) | The Python project: photo import, face recognition, labeling, live tracker, measurement tools | `face-recognizer\setup.bat` once, then the two apps below |
-| Labeling tool (`label_tool.py`) | Add photos, confirm suggested names, name new people, fix mistakes; clues for unknown faces (closest people, photo tags, same occasion) and one-click **Web search** | `face-recognizer\label.bat` → http://127.0.0.1:8765 |
+| FaceRecognizer.exe (`app.py`) | Both apps in one window, with **Face tracking**, **Labeling** and **Settings** tabs; downloads the models on first start | Download from Releases, or `face-recognizer\build_app.bat` |
+| Labeling tool (`label_tool.py`) | Add photos and videos, confirm suggested names, name new people, fix mistakes; clues for unknown faces (closest people, photo tags, same occasion), one-click **Web search** and **Describe photo** (a local vision model) | `face-recognizer\label.bat` → http://127.0.0.1:8765 |
 | Live tracker (`tracker.py`) | Names, match confidence, expression and other signals on each face | `face-recognizer\recognize.bat` → http://127.0.0.1:8766 |
 | Measurement (`tools/expr_eval.py`, `tools/eval_models.py`, `tools/hw_bench.py`) | Accuracy, calibration, talking, per-condition breakdowns, valence/arousal fit, model and hardware comparisons | `python tools\expr_eval.py` from `face-recognizer\` |
 | [face-tracker/](face-tracker/README.md) | The original standalone browser face tracker (MediaPipe), no install | Double-click `index.html` |
@@ -39,7 +42,9 @@ Everything runs on one Windows PC. No photos, video, audio or face data leave th
 | **Every signal is read against the person's own normal** | People differ more from each other than from their own good and bad days, so a population norm says little about one person (the idiographic view, Molenaar 2004). Each named person's usual level of every signal is learned, separately alone and in company, and the tracker shows departures ("head -2.3 SD for Chris"). Kept in the browser only, and forgettable per person. |
 | **Self-report is the only ground truth for feelings** | An opt-in "feeling check" asks how you feel on two 1–7 scales. Without it, accuracy can only be measured against posed expressions, never against feelings. |
 | **Only numbers are stored for research** | Posed tests and feeling reports save scores and signals (including body points): no pictures, no audio. Live expression, voice, pulse and posture are never written down. |
-| **Two separate apps** (labeling and tracking) | Owner preference. Each stays simple, and both can run at once. |
+| **Two separate apps** (labeling and tracking) | Owner preference. Each stays simple, and both can run at once. Since 2026-11-08 FaceRecognizer.exe shows both in one window as tabs, but each keeps its own server and page. |
+| **One Settings tab that owns no settings** | Each setting stays with the program it belongs to (the page's controls and storage, or its server). The Settings tab asks each page for its settings and sends changes back (`settings_bridge.js`), so the tab and the pages can't disagree and each page still works on its own. |
+| **Describe photo: local by default, your choice of server** | A vision model in LM Studio on this computer, or a built-in one (Florence-2) when there's none. The server can be moved to another device; the Settings tab then says each described photo is sent there, and warns about unencrypted internet addresses. |
 | **Clues before guesses for unknown faces** | A face seen once can't be learned from, so the labeling tool shows what else is known: the closest people (with their scores), the photo's own people tags (photo apps, Google Takeout), and who was photographed at the same occasion. None of these ever labels a face by itself. |
 | **Web search: US services, English, capped, saved** | Owner's rules. Amazon Rekognition names well-known people from the face with a match percentage; Google Cloud Vision only helps when the same picture is online, since it doesn't identify faces. The tool combines them into one suggestion with a confidence level, or says it found none. Each service stops itself before $10 a month, keys stay outside the (public) repository, and each face's answer is saved so it is never paid for twice. |
 
@@ -215,8 +220,8 @@ The repository and the releases contain the programs only, no photos, faces, nam
 the tools learn from your photos lives in `face-recognizer/data/` (beside `FaceRecognizer.exe` for the
 .exe), which is created on first start, starts empty, and is in `.gitignore`: face prints, face pictures,
 labels, photo dates and people tags, saved Web search answers and benchmark results. Web search keys,
-photo descriptions, webcam snapshots and the presence log are in `%APPDATA%\FaceLabels\`, also only on
-your computer.
+photo descriptions and their settings, webcam snapshots and the presence log are in `%APPDATA%\FaceLabels\`,
+also only on your computer.
 
 Until 2026-11-09 the repository included the author's `data/` folder; it was removed from the repository's
 whole history and from the releases then. Keep your own `data/` out of any public repository: it holds
@@ -232,6 +237,7 @@ personal data about the people in your photos.
 | eDifFIQA (tiny) | Face quality | See its upstream repository |
 | MediaPipe Face Landmarker | Blendshape cues | Apache 2.0 |
 | MediaPipe Pose Landmarker lite | Body posture | Apache 2.0 |
+| Microsoft Florence-2 large (ONNX, optional download) | Built-in photo describer | MIT |
 | Amazon Rekognition, Google Cloud Vision (online services, optional) | Web search in the labeling tool | Paid per use under each provider's terms; your own keys |
 
 Because of the ArcFace and Wav2Small terms, the project as a whole is for **non-commercial use** unless
@@ -244,4 +250,4 @@ those models are replaced or licensed.
 - [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md): full history, measured values, environment details and open items
 - [Real-Time Facial Emotion Recognition.md](Real-Time%20Facial%20Emotion%20Recognition.md): the external design review (chat export)
 - [face-tracker/README.md](face-tracker/README.md): the original browser tracker
-- [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md): conventions for coding assistants working in this repo
+- [AGENTS.md](AGENTS.md): layout, conventions, security rules and how to test, for coding assistants and contributors ([CLAUDE.md](CLAUDE.md) reads it)

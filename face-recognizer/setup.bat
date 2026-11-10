@@ -31,13 +31,19 @@ echo Using Python:
 echo.
 echo Installing libraries (OpenCV, NumPy, scikit-learn, Pillow, HEIC support)...
 %PY% -m pip install --upgrade pip
-%PY% -m pip install -r requirements.txt
+rem Older setups installed opencv-python as well as opencv-contrib-python (mediapipe's); both own the cv2 files,
+rem so remove the plain one and reinstall contrib over the files it shared.
+set REPAIR_CV=
+%PY% -m pip show -q opencv-python >nul 2>&1 && set REPAIR_CV=1
+if defined REPAIR_CV %PY% -m pip uninstall -y -q opencv-python
+%PY% -m pip install -r "%~dp0requirements.txt"
 if errorlevel 1 (
   echo.
   echo Library install failed. See the messages above.
   pause
   exit /b 1
 )
+if defined REPAIR_CV %PY% -m pip install -q --force-reinstall --no-deps -r "%~dp0requirements.txt"
 echo.
 echo Checking the face models are here (downloading any that are missing)...
 %PY% fetch_models.py

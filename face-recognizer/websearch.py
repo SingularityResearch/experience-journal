@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -95,13 +96,18 @@ def usage(service="vision"):
     return {"month": month, "used": int(u.get("used", 0)) if u.get("month") == month else 0, "cap": CAPS[service]}
 
 
+_count_lock = threading.Lock()
+
+
 def _count(service):
-    """Count a search before sending it (a failed call may still be billed); refuse past the cap."""
-    u = usage(service)
-    if u["used"] >= u["cap"]:
-        raise ValueError(f"{service} limit reached: {u['cap']} searches this month (keeps the bill under $10)")
-    HOME.mkdir(parents=True, exist_ok=True)
-    (HOME / f"{service}_usage.json").write_text(json.dumps({"month": u["month"], "used": u["used"] + 1}), "utf-8")
+    """Count a search before sending it (a failed call may still be billed); refuse past the cap. Under a
+    lock, so two searches at once can't both take the last one."""
+    with _count_lock:
+        u = usage(service)
+        if u["used"] >= u["cap"]:
+            raise ValueError(f"{service} limit reached: {u['cap']} searches this month (keeps the bill under $10)")
+        HOME.mkdir(parents=True, exist_ok=True)
+        (HOME / f"{service}_usage.json").write_text(json.dumps({"month": u["month"], "used": u["used"] + 1}), "utf-8")
 
 
 def english(s):

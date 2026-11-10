@@ -25,6 +25,7 @@ import numpy as np
 
 import describe
 import websearch
+import localguard
 from localguard import refuse_reason
 
 HERE = Path(__file__).resolve().parent
@@ -40,6 +41,7 @@ def make_handler(db, importer):
     import face_id as F
     import labels as L
     photo_cache = OrderedDict()            # last few whole photos, already JPEG-encoded
+    cache_lock = threading.Lock()          # requests come in on several threads
     no_thumb = set()                       # faces whose picture couldn't be remade (this run)
     remake = []                            # faces waiting for their picture to be remade (newest asked first)
     remake_cv = threading.Condition()
@@ -52,9 +54,10 @@ def make_handler(db, importer):
         rec = db.store.photos.get(h, {})
         frame = rec.get("at", {}).get(db.store.fid[i]) if rec.get("video") else None
         key = h if frame is None else (h, frame)
-        if key in photo_cache:
-            photo_cache.move_to_end(key)
-            return photo_cache[key]
+        with cache_lock:
+            if key in photo_cache:
+                photo_cache.move_to_end(key)
+                return photo_cache[key]
         p = rec.get("path")
         if not (p and Path(p).exists()):
             return None
@@ -63,9 +66,10 @@ def make_handler(db, importer):
         if img is None:
             return None
         jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
-        photo_cache[key] = jpg
-        while len(photo_cache) > 12:
-            photo_cache.popitem(last=False)
+        with cache_lock:
+            photo_cache[key] = jpg
+            while len(photo_cache) > 12:
+                photo_cache.popitem(last=False)
         return jpg
 
     def describe_key(i):
@@ -92,6 +96,10 @@ def make_handler(db, importer):
         stops it. One request to LM Studio at a time, the next photos loading meanwhile: with 3 at once, LM Studio's
         log showed generation falling from 48 to 1.3 tokens/s per request (Qwen 3.6 35B-A3B), 45 s a photo
         instead of about 3.5 s."""
+        with importer.job_lock:                  # one background job at a time (imports, scans, this)
+            _describe_all()
+
+    def _describe_all():
         if importer.thread and importer.thread.is_alive():
             raise ValueError("An import is already running.")
         name = describe.model()                  # raises Unavailable with what's missing
@@ -227,6 +235,7 @@ def make_handler(db, importer):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "max-age=31536000, immutable" if cache else "no-store")
+            localguard.page_headers(self)
             self.end_headers()
             try:
                 self.wfile.write(body)
@@ -240,6 +249,12 @@ def make_handler(db, importer):
             return reason
 
         def do_GET(self):
+            localguard.answer_errors(self, self._get, lambda body, code: self.send(body, code=code))
+
+        def do_POST(self):
+            localguard.answer_errors(self, self._post, lambda body, code: self.send(body, code=code))
+
+        def _get(self):
             if self.refused(write=False):
                 return
             u = urlparse(self.path)
@@ -248,6 +263,8 @@ def make_handler(db, importer):
             try:
                 if path in ("/", "/index.html"):
                     return self.send(PAGE.read_bytes(), "text/html; charset=utf-8")
+                if path == "/settings_bridge.js":        # shared with the tracker's page: the app's Settings tab
+                    return self.send((HERE / "settings_bridge.js").read_bytes(), "text/javascript; charset=utf-8")
                 if path.startswith("/thumb/"):
                     i = int(path[7:].split(".")[0])
                     if 0 <= i < db.n:
@@ -298,9 +315,14 @@ def make_handler(db, importer):
                     if path == "/api/possiblefaces":         # the Possible faces list
                         return self.send({"faces": db.possible(), "left": db.possible_left()})
                     if path.startswith("/api/possible/"):   # possible faces the import didn't keep (shown only)
-                        return self.send({"faces": importer.possible_faces(int(path[14:]))})
+                        i = int(path[14:])
+                        if not 0 <= i < db.n:
+                            raise IndexError("no such face")
+                        return self.send({"faces": importer.possible_faces(i)})
                     if path.startswith("/api/photoinfo/"):
                         i = int(path[15:])
+                        if not 0 <= i < db.n:
+                            raise IndexError("no such face")
                         h = db.store.photo[i]
                         p = db.store.photos.get(h, {})
                         others = [{"i": j, "box": [round(float(v)) for v in db.store.box[j][:4]], "name": db.name(j),
@@ -323,7 +345,7 @@ def make_handler(db, importer):
                 return self.send({"error": str(e)}, code=400)
             self.send({"error": "not found"}, code=404)
 
-        def do_POST(self):
+        def _post(self):
             if self.refused(write=True):
                 return
             try:
@@ -376,6 +398,14 @@ def make_handler(db, importer):
                     except describe.Unavailable as e:
                         raise ValueError(str(e))
                     return self.send({"ok": True})
+                if path == "/api/describe/config":       # Settings: which describer, server, model, API key
+                    describe.set_config(**{k: body[k] for k in ("use", "url", "model", "key") if k in body})
+                    return self.send({"ok": True})
+                if path == "/api/describe/test":         # Settings' Test button
+                    try:
+                        return self.send({"ok": True, "message": describe.test(body.get("url") or "", body.get("key"))})
+                    except describe.Unavailable as e:
+                        raise ValueError(str(e))
                 if path == "/api/describe/getmodel":     # download the built-in describer (florence.py), background
                     describe.florence.download_in_background()
                     return self.send({"ok": True})
@@ -488,7 +518,7 @@ def main():
     srv, port = None, a.port
     for port in range(a.port, a.port + 10):
         try:
-            srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), http.server.BaseHTTPRequestHandler)
+            srv = localguard.bind(port)        # no address reuse on Windows: a second copy gets OSError
             break
         except OSError:
             if already_running(port):

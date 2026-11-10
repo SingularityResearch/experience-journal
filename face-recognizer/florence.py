@@ -103,9 +103,14 @@ def download():
         st["running"] = False
 
 
+_start_lock = threading.Lock()
+
+
 def download_in_background():
-    if download_state["running"]:
-        return
+    with _start_lock:                         # two quick clicks start one download, not two into the same files
+        if download_state["running"]:
+            return
+        download_state["running"] = True
     threading.Thread(target=lambda: _quiet(download), daemon=True).start()
 
 

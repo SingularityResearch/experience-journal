@@ -2,13 +2,14 @@
 
 Exported 2026-10-29 from the Claude Project **"Facial-Recognition"**
 (*Detect known faces and provide for the management and labeling of new or unknown faces.*).
-Revised the same day to match the code and data as they now stand.
+Revised the same day to match the code and data as they now stand, and kept up to date since
+(last: 2026-11-09, v1.7 with the Settings tab; see §7 "Releases" and §10).
 
 This file collects everything established across the Project's chats so a coding assistant or a human
 opening the repo in VS Code has the full background: what was built, why, where it lives, the measured
 tuning values, the owner's stated preferences, and the environment gotchas that cost time before.
 
-**Related docs:** [README](README.md) (goals, decisions, research value) · [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) (assistant conventions) ·
+**Related docs:** [README](README.md) (goals, decisions, research value) · [AGENTS.md](AGENTS.md) (layout, conventions, security rules, checks; [CLAUDE.md](CLAUDE.md) reads it) ·
 [Face Recognizer README](face-recognizer/README.md) (user docs) ·
 [Face Tracker README](face-tracker/README.md) ·
 [Why expression reading is layered](docs/WHY_LAYERED_EXPRESSION.md) (the science) ·
@@ -30,7 +31,11 @@ A fully local face-recognition system for a USB webcam, built for Chris:
    (optionally) a facial-expression reading directly on their face.
 
 Nothing leaves the machine. No photos or face data are sent anywhere, except one face or photo when the
-owner clicks **Web search** in the labeling tool: the face goes to Amazon Rekognition and the photo to Google Cloud Vision (never automatic).
+owner clicks **Web search** in the labeling tool: the face goes to Amazon Rekognition and the photo to Google Cloud Vision (never automatic),
+and photos to be described when **Describe photo** is pointed at a model server on another device (Settings tab, since v1.7).
+
+Since 2026-11-08 the tracker and the labeling tool also run together as **FaceRecognizer.exe** (`app.py`): one window
+with Face tracking, Labeling and (since v1.7) Settings tabs, each program still on its own server and page.
 
 ---
 
@@ -38,7 +43,8 @@ owner clicks **Web search** in the labeling tool: the face goes to Amazon Rekogn
 
 ```
 X:\source\facial-recognition\
-├── CLAUDE.md, AGENTS.md, PROJECT_CONTEXT.md
+├── AGENTS.md (the guide), CLAUDE.md (reads AGENTS.md), PROJECT_CONTEXT.md, README.md
+├── .github\workflows\checks.yml   CI: node tests + pyflakes
 ├── Real-Time Facial Emotion Recognition.md   expression design review (LM Studio export)
 ├── docs\
 │   └── WHY_LAYERED_EXPRESSION.md            why expression reading is layered, with references
@@ -53,11 +59,20 @@ X:\source\facial-recognition\
     ├── tracker_ui.html           live tracker page (served by tracker.py)
     ├── expression.js             expression vote, state model, usual looks, evidence (browser; tests\)
     ├── signals.js                motion, talking, blinks, gaze, timing, pulse, voice, VA fit (browser; tests\)
+    ├── settings_bridge.js        the app's Settings tab <-> each page's settings (postMessage; served by both servers)
+    ├── app.py                    FaceRecognizer.exe: one window, three tabs (Face tracking, Labeling, Settings); shell on 8764
+    ├── build_app.bat             PyInstaller one-file build of app.py → FaceRecognizer.exe
+    ├── websearch.py              Web search: Amazon Rekognition + Google Cloud Vision (on click; own keys in %APPDATA%)
+    ├── describe.py               Describe photo: LM Studio or any OpenAI-style server (Settings), else florence.py
+    ├── florence.py               built-in Florence-2 large describer (ONNX int8, CPU; 0.8 GB on request)
+    ├── fetch_models.py           first-start model download from the publishers, models-v1 as fallback; SHA-256
     ├── localguard.py             refuse_reason(): request checks shared by both servers
+    ├── tests\                    Node tests for expression.js and signals.js
     ├── setup.bat                 installs Python 3.12 via winget, then pip installs requirements.txt
     ├── recognize.bat             starts tracker.py (checks cv2/numpy are installed first)
     ├── label.bat                 starts label_tool.py
-    ├── requirements.txt          opencv-python, numpy, scikit-learn, pillow, pillow-heif, onnxruntime-directml, mediapipe
+    ├── requirements.txt          opencv-python, numpy, scikit-learn, pillow, pillow-heif, onnxruntime-directml, mediapipe,
+    │                             boto3 (mostly unpinned; pywebview and pyinstaller come from build_app.bat)
     ├── README.md                 user-facing docs; kept in sync with code changes
     ├── tools\
     │   ├── eval_models.py        ArcFace vs AdaFace vs both, on clean/blurred/tiny/motion faces → data\model_eval.json
@@ -66,7 +81,9 @@ X:\source\facial-recognition\
     │   ├── expr_eval.py          posed tests + feeling reports → accuracy, calibration, talking, VA fit
     │   ├── get_adaface.py        downloads the official AdaFace IR-101 weights and converts them to ONNX
     │   ├── get_wav2small.py      downloads audEERING Wav2Small weights and converts them to ONNX
-    │   └── import_bench.py       photo-import timing
+    │   ├── import_bench.py       photo-import timing
+    │   ├── websearch_check.py    the Web search on picture files
+    │   └── webcam_eval.py        live naming on confirmed webcam snapshots (/api/who)
     ├── models\
     │   ├── face_detection_yunet_2023mar.onnx           YuNet detector (OpenCV Zoo)
     │   ├── arcface_w600k_r50.onnx                      ArcFace recognizer (174 MB)
@@ -77,6 +94,7 @@ X:\source\facial-recognition\
     │   ├── face_landmarker.task                        MediaPipe blendshapes (optional)
     │   ├── wav2small.onnx, wav2small_src\              voice arousal/dominance/valence, 69 KB (optional; CC BY-NC-SA)
     │   ├── pose_landmarker_lite.task                   MediaPipe body posture, 5.8 MB (optional; Apache 2.0)
+    │   ├── florence2\                                  built-in describer, downloaded on request (not in git)
     │   └── npu\                                        static batch-1 ArcFace, vitisai_config.json, compile cache
     └── data\                     produced by the tools; shared by all programs. LOCAL ONLY since 2026-11-09:
                                   the whole folder is in .gitignore, purged from git history and releases; a
@@ -97,8 +115,14 @@ X:\source\facial-recognition\
         ├── people.npz            face prints of named people — what the tracker and `recognize` use
         ├── settings.json         photo folders that have been added
         ├── sheets\               contact sheets written by `cluster` (group_###.jpg, overview_*.jpg): local only
+        ├── photo_facts.json, web_suggestions.json   camera dates/people tags; saved Web search answers
+        ├── expr_eval\            opt-in posed test sessions and feeling reports (numbers only)
         └── model_eval.json, hw_bench.json   results from the tools above
 ```
+
+Outside the project, `%APPDATA%\FaceLabels\` holds what is private to this computer's user: Web search keys and
+monthly counts, `describe.json` (describer settings, optional API key), `descriptions.json`, `webcam\` (Collect faces),
+`presence\` (opt-in log), `webview\` (the .exe window's browser storage: page options, baselines, usual looks), `app.log`.
 
 `face-recognizer\data_backup_20261029\` is a full copy of `data\` from before the per-face migration
 (old format, 3.8 MB faces.npz).
@@ -366,8 +390,8 @@ History:
 - Groups that were artwork, video-game characters, tattoos, sculptures, or ambiguous images were ignored
   at Chris's request.
 - The database was then migrated from group-based labels (`groups.json`/`names.json`/`scanned.json`) to
-  permanent face IDs with per-face labels. (The pre-migration files were removed in the Oct 30 cleanup;
-  they remain in git history, commit `ead2b28`, under `data/backups/legacy-20261029-080425/`.)
+  permanent face IDs with per-face labels. (The pre-migration files were removed in the Oct 30 cleanup.
+  They were in the old git history, which was replaced on 2026-11-09; a local backup bundle of that history exists.)
 
 Timeline of the Project's chats:
 
@@ -378,6 +402,19 @@ Timeline of the Project's chats:
 | Oct 29 13:37 | *Labeling tool launch* | Launched tracker and labeling tool on the PC; clarified "the recognizer" = labeling tool. |
 | Oct 29 14:06 | *Emotion detection from face tracking* | Expression feature (gating, mirrored scoring, voting, per-person calibration), README update, collapsible Known-people card, opened repo in VS Code. |
 | Oct 29 16:37 | *Export command* | `/export` attempt; led to this document. |
+
+Releases (FaceRecognizer.exe, GitHub Releases; `models-v1` holds the model files for first-start downloads):
+
+| Version | Date (2026) | What changed |
+|---|---|---|
+| v1.0-v1.1 | Nov 8 | First releases of FaceRecognizer.exe: both apps in one window (`app.py`, pywebview) |
+| v1.2 | Nov 8 | Video import (people followed, 3 clearest faces), moved photos found again (`relocate`) |
+| v1.3 | Nov 8 | Import progress always visible, face mesh drawn in shade groups |
+| v1.4 | Nov 9 | Possible faces (low detector cut-off), Find more faces, Draw a face |
+| v1.5 | Nov 9 | Describe photo (LM Studio; built-in Florence-2 fallback), stacks of the same picture |
+| v1.5.1 | Nov 9 | Models fetched from their publishers (OpenCV Zoo, MediaPipe, InsightFace), `models-v1` as fallback |
+| v1.6 | Nov 9 | All of `data/` taken out of the repository and its history (repo restarted as one commit); Amazon keys enterable in the app; "No photos yet" welcome |
+| v1.7 | Nov 9 (not yet released) | Settings tab (every option in sections, `settings_bridge.js`), all tracker options remembered, alert list with Unknown, Describe photo server/model/API key settings (any OpenAI-style server, other devices with a warning) |
 
 ---
 
@@ -391,6 +428,10 @@ Timeline of the Project's chats:
 - Known-people list collapsed by default; live readout keeps names visible.
 - Thresholds (match strictness default 0.35, `AUTO`/`MARGIN`, expression gates and votes) are measured
   values — don't change them without re-measuring.
+- The repository is public for the code only: none of `data/`, no personal details; releases hold the .exe and a
+  README.txt for new users. Web search: US services and English results only.
+- Settings belong in one **Settings** tab as well as on each page (2026-11-09); alerts pick people from a list,
+  Unknown included. Describe photo may use a server on any device, inside or outside the home network.
 
 ---
 
@@ -508,6 +549,43 @@ individual, and of interactions between identified people. Step 1 (done): per-pe
   synchrony, mimicry, approach), framed by Kenny's Social Relations Model (actor, partner, relationship).
 
 ## 10. Open items / ideas not yet done
+
+### Review of 2026-11-09 (code, security, tests): to do, by priority
+
+Done the same day (v1.7, before release), all checked in the running app:
+- **Framing:** every answer of the two programs carries `frame-ancestors` (only themselves and the app's tab page);
+  the tab page can't be framed. A page on another local port framing the labeling tool was blocked.
+  `settings_bridge.js` also checks the parent's real origin (`location.ancestorOrigins`).
+- **Describe API key:** cleared when the server address changes; Test sends it only to its own address; redirects
+  aren't followed (the key no longer reached a second server in a redirect test); answers capped at 4 MB, text at
+  4,000 characters, non-text answers refused.
+- **Shell GETs** `/update`, `/open-release`, `/open` need `X-Face-Tool` (any website got 403); the shell uses
+  `localguard.refuse_reason` (Host and port).
+- **Bugs:** one `localguard.bind` without address reuse for all three servers (a second bind of 8765 now fails with
+  10048); `Importer.begin` starts imports, scans and Describe all under one lock; locks for `photo_cache`, the
+  Web search monthly counter and the Florence download start; negative face indexes refused; uncaught handler
+  errors answered with a JSON 500 (`localguard.answer_errors`).
+- **Requirements:** pinned to the versions in use; only `opencv-contrib-python` (setup.bat removes a plain
+  `opencv-python`); pywebview added; `requirements-build.txt` for the build.
+
+Still open (security, low): consider refusing `Sec-Fetch-Site: cross-site` in `localguard` (other sites can still
+load `/thumb` and `/photo` as images and learn that the app runs and how many faces it has, though not see them);
+keys in plain files (DPAPI possible); a committed PyInstaller spec file.
+
+Structure and tests:
+9. Importing `face_id` checks the models and exits (`NotDownloaded`), so nothing that imports it can be tested in CI.
+   Check in the entry points instead (or a `FACE_ROOT` override), then add pytest for: `localguard`,
+   `describe.clean_url/where/set_config`, `websearch` key checks and caps, `fetch_models` zip/range download with a
+   local server, `LabelDB` act/undo/rename and the thumbnails migration on a tiny synthetic `data/`, the empty-`data/`
+   new-user path. Add a test that pins the measured thresholds.
+10. CI: also parse the inline scripts (`node --check` on extracted `<script>` blocks) and `settings_bridge.js`; add
+    ruff with a committed config (line length 120); later, move the inline page scripts and the `app.py` SHELL page
+    into their own files.
+11. Large modules: `labels.py` (1,750 lines: file utilities, XMP/Takeout, relocate/migrate, LabelDB, Importer) and
+    `label_tool.make_handler` (one ~400-line function). Split, and give the three servers one small shared handler
+    base with a route table. `%APPDATA%\FaceLabels` is defined in four modules and atomic writes in four versions:
+    one `paths.py`, one `atomic_write`.
+12. Import and describe errors are counted but not recorded: keep the last few (file, reason) and show them.
 
 - Record more posed sessions (now with the talking and "chin on hand" steps) and feeling reports; then
   decide on `TALK_JAW_SD`, the talking and hand gates, the state model and any cue fusion from

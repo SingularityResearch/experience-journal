@@ -10,11 +10,11 @@ if not defined PY (
   pause
   exit /b 1
 )
-%PY% -m pip install -q pyinstaller pywebview || goto :failed
+%PY% -m pip install -q -r "%~dp0requirements-build.txt" || goto :failed
 %PY% -m PyInstaller --noconfirm --clean --onefile --windowed --name FaceRecognizer ^
   --workpath build --distpath build\dist --specpath build ^
   --add-data "%~dp0tracker_ui.html;." --add-data "%~dp0label_ui.html;." ^
-  --add-data "%~dp0expression.js;." --add-data "%~dp0signals.js;." ^
+  --add-data "%~dp0expression.js;." --add-data "%~dp0signals.js;." --add-data "%~dp0settings_bridge.js;." ^
   --collect-all mediapipe --collect-all onnxruntime --collect-submodules webview ^
   --hidden-import sklearn.cluster ^
   --exclude-module torch --exclude-module torchvision --exclude-module torchaudio --exclude-module torchgen ^

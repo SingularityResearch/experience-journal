@@ -1354,6 +1354,7 @@ class Importer:
         self.faces = None
         self.thread = None
         self.stop = threading.Event()
+        self.job_lock = threading.Lock()          # imports, possible-face scans and Describe all: one at a time
         self._more_lock = threading.Lock()
         self._more_det = None
         self._more_cache = {}                     # (photo, frame) -> (image, possible-face rows)
@@ -1362,11 +1363,16 @@ class Importer:
         folder = Path(str(folder).strip().strip('"'))
         if not folder.is_dir():
             raise ValueError(f"Folder not found: {folder}")
-        if self.thread and self.thread.is_alive():
-            raise ValueError("An import is already running.")
-        self.stop.clear()
-        self.thread = threading.Thread(target=self.run, args=(folder,), daemon=True)
-        self.thread.start()
+        self.begin(self.run, folder)
+
+    def begin(self, target, *args):
+        """Start a background job unless one is running (checked and started under one lock)."""
+        with self.job_lock:
+            if self.thread and self.thread.is_alive():
+                raise ValueError("An import is already running.")
+            self.stop.clear()
+            self.thread = threading.Thread(target=target, args=args, daemon=True)
+            self.thread.start()
 
     MORE_SCORE = 0.45                 # possible faces: detector confidence, far below F.DET_SCORE ...
     MORE_SIZES = (10_000, 640, 480, 320)   # ... at more scales: you look at what it finds and decide
@@ -1544,11 +1550,7 @@ class Importer:
         """Look for possible faces in every photo added before possible faces were kept, in the background
         (progress in self.status, like an import). Skips videos, and online-only cloud files (they'd be
         downloaded just for this): those are looked at another time, once they're on this computer."""
-        if self.thread and self.thread.is_alive():
-            raise ValueError("An import is already running.")
-        self.stop.clear()
-        self.thread = threading.Thread(target=self._scan_possible, daemon=True)
-        self.thread.start()
+        self.begin(self._scan_possible)
 
     def _scan_possible(self):
         db, store = self.db, self.db.store

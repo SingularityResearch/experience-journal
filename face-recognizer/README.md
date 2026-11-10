@@ -32,11 +32,12 @@ Double-click **setup.bat**. It installs Python 3.12 if needed (with winget), ins
 
 ## One window: FaceRecognizer.exe
 
-**FaceRecognizer.exe** opens the face tracker and the labeling tool in one window, with a **Face tracking** tab and a **Labeling** tab at the top (**Ctrl+1** / **Ctrl+2** also switch). Inside, the two are still separate programs on their usual ports (8766 and 8765) with the same pages as `recognize.bat` and `label.bat`. The tracker keeps running while you're on the Labeling tab, so **Collect faces for labeling** goes on collecting. If either is already open from its .bat, the window uses that copy instead of starting a second one. Both tabs are ready about 10 seconds after starting; closing the window stops everything.
+**FaceRecognizer.exe** opens the face tracker and the labeling tool in one window, with a **Face tracking** tab, a **Labeling** tab and a **Settings** tab at the top (**Ctrl+1** / **Ctrl+2** / **Ctrl+3** also switch). Inside, the two are still separate programs on their usual ports (8766 and 8765) with the same pages as `recognize.bat` and `label.bat`. The tracker keeps running while you're on the Labeling tab, so **Collect faces for labeling** goes on collecting. If either is already open from its .bat, the window uses that copy instead of starting a second one. Both tabs are ready about 10 seconds after starting; closing the window stops everything.
 
 - **Build it** with **build_app.bat**; see **Building FaceRecognizer.exe** below for the full steps. Or download a ready-made one from GitHub **Releases**.
 - **Keep it in this folder.** The .exe carries only the code and pages. It uses the `models\` and `data\` folders beside it, so it shares labels with the .bat launchers and git. Rebuild it after changing any `.py`, `.html` or `.js` file.
 - **The window** is Edge WebView2, which is part of Windows 11. The camera and microphone are allowed for the app's own pages without a prompt. The window remembers each page's options and the per-person baselines in `%APPDATA%\FaceLabels\webview\`, separately from your browser's. Messages and errors go to `%APPDATA%\FaceLabels\app.log`.
+- **Settings** gathers every option in sections: App (version, Check for updates, and buttons that open the `data` folder and `%APPDATA%\FaceLabels`), Face tracking (camera, display, expression and signals, recognition, alerts and presence log: tick who to be alerted about in a list of everyone known, plus Unknown), Labeling, Web search (enter or remove your own keys) and Describe photo (which model describes photos; download the built-in one). Changes apply at once and are remembered between runs; sections have **Reset to defaults**. The same options stay on the Face tracking and Labeling tabs too, and the two always agree. Every Face tracking option is now remembered between runs (before, only some were).
 - **Check for updates** (top right of the window) asks GitHub for the latest release, only when you click it, and offers to open its download page if it's newer.
 - **If the camera is "busy" or missing**, another app has it, often the tracker still open in a browser tab, which starts the camera by itself. Close that tab (or the other app) and press **Start camera** again.
 
@@ -50,12 +51,12 @@ You need Windows 10 or 11 (64-bit), an internet connection for the first build, 
    git clone https://github.com/SingularityResearch/facial-recognition.git
    cd facial-recognition\face-recognizer
    ```
-   Without Git LFS the models and `data\` arrive as small placeholder files, and the programs stop with *"Model files weren't downloaded: install Git LFS and run git lfs pull"*.
+   Without Git LFS the models arrive as small placeholder files; `setup.bat` (next step) replaces them by downloading the real ones (`fetch_models.py`). `data\` isn't in the repository: it's created empty on first start.
 2. **Run `setup.bat` once.** It installs Python 3.12 (with winget) and the libraries in `requirements.txt`, downloads any missing face models (`fetch_models.py`), and checks that they load. All the .bat files use that Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`).
 3. **Close FaceRecognizer.exe if it's running.** Windows locks a running .exe, so the new one can't be copied over it.
 4. **Double-click `build_app.bat`.** It:
-   1. installs PyInstaller and pywebview into that Python;
-   2. builds a single windowed .exe from `app.py` with PyInstaller. It packs in the four page files (`tracker_ui.html`, `label_ui.html`, `expression.js`, `signals.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
+   1. installs the pinned libraries in `requirements-build.txt` (`requirements.txt` plus PyInstaller) into that Python;
+   2. builds a single windowed .exe from `app.py` with PyInstaller. It packs in the five page files (`tracker_ui.html`, `label_ui.html`, `expression.js`, `signals.js`, `settings_bridge.js`) and MediaPipe's and ONNX Runtime's own files. It leaves out PyTorch, TensorFlow, pandas and IPython, which nothing in the app uses; with PyTorch the .exe was 646 MB.
    3. copies the result to `face-recognizer\FaceRecognizer.exe` (about 210 MB).
 
    It takes 2–6 minutes. Its work files go in `face-recognizer\build\`. Git ignores that folder and the .exe, and you can delete the folder any time.
@@ -63,12 +64,12 @@ You need Windows 10 or 11 (64-bit), an internet connection for the first build, 
 
 **Rebuild after any change** to a `.py`, `.html` or `.js` file: the .exe carries its own copy of the code and pages. The models and `data\` aren't inside it, so new labels and models need no rebuild.
 
-**Run the window without building:** `python app.py` from `face-recognizer\`, using the Python 3.12 above (it needs pywebview, which build_app.bat installs). This gives the same window and tabs, straight from the source files.
+**Run the window without building:** `python app.py` from `face-recognizer\`, using the Python 3.12 above (it needs pywebview, which `setup.bat` installs). This gives the same window and tabs, straight from the source files.
 
 **Making a release** (for GitHub Releases):
-1. Raise `VERSION` in `app.py` (for example `"1.2"`) and build.
-2. Make a folder with `FaceRecognizer.exe`, a copy of `data\` (leave out `data\backups\` and `data\settings.json`, which holds your own folder paths), and a short `README.txt`.
-3. Zip it as `FaceRecognizer-win64.zip` and attach it to a release tagged `v1.2`.
+1. Raise `VERSION` in `app.py` (for example `"1.7"`) and build.
+2. Make a folder with only `FaceRecognizer.exe` and a short `README.txt` for new users. **Never include `data\`**: it holds your faces, names and labels. A new user's copy starts empty.
+3. Zip it as `FaceRecognizer-win64.zip` and attach it to a release tagged `v1.7`.
 
 Leave out the models: the .exe downloads them on first start (`fetch_models.py`): YuNet, eDifFIQA and the expression model from OpenCV Zoo on Hugging Face, the face and pose landmarkers from Google's MediaPipe storage, ArcFace from InsightFace's own release (just that file out of their `buffalo_l.zip`; each the very same file, checked by SHA-256), and Wav2Small, plus any of the others whose source fails or has changed, from the release `models-v1`. So that release must stay, and the repository must stay public. If a model changes, publish a new models release (for example `models-v2`) and update `TAG` and the file list in `fetch_models.py`. The .exe isn't code-signed, so Windows SmartScreen may warn the first time it runs (**More info → Run anyway**).
 
@@ -86,6 +87,7 @@ The tracker and the labeling tool are ordinary local web apps; the .exe only put
 - The browser asks once for the camera and microphone. It remembers each page's options and per-person baselines itself, separately from the .exe window's.
 - Both servers listen only on this computer (`127.0.0.1`). Other devices on your network can't reach them, and pages from other websites can't use them.
 - If FaceRecognizer.exe starts while one is already running from its .bat, the window uses that copy instead of starting a second one.
+- The **Settings** tab exists only in FaceRecognizer.exe's window (or `python app.py`). In the browser, the same options are on each page: the tracker's **Controls** panel, the labeling tool's toolbar and photo view, and **Settings and other ways to search** in the Web search dialog. The Describe photo server, model and API key can be set only in the Settings tab (or the default address with `FACE_LLM_URL`).
 
 ## Step by step
 
@@ -255,7 +257,8 @@ Also:
 - **Same picture, one tile**: a face that's the same picture as faces in other photos (an avatar in many screenshots, burst shots, re-saved copies; face prints at least 0.95 alike) shows as one tile with a **×N** badge, in every list. Selecting, naming, ignoring, accepting or rejecting it does the same to all N. Different photos of one real person are rarely that alike (0.06% of pairs), so different photos still get their own tiles. In this library 1,722 faces fall into 783 such stacks.
 - **Possible faces**: every photo is looked at twice. Faces the detector is at least 85% sure of are kept as before; faces it's 45% to 85% sure of, or finds only at other sizes, are kept too, as **possible faces**: blurry, turned, small or partly hidden faces, and some things that only look like faces. They have their own list under **To review**, so **New faces** isn't buried in them. Most of them aren't faces (in a hand-sorted sample of 160, only 24 were real faces), so the list is sorted by how much each looks like a real face: a small model learns that from your library each time faces are added (faces the normal detector found count as real, possible faces as mostly not; possible faces you name or **Ignore** teach it too). Only the most face-like quarter, under **Look like faces**, get **dashed yellow boxes** in the photo view, labelled with how sure the detector is ("Face? 73%"); the rest are under **Less likely to be faces**, without boxes. On the hand-sorted sample this kept boxes on 17 of the 24 real faces and took them off about 9 in 10 non-face objects (food, tyres, hands, screens). Drawings, paintings and game characters mostly keep their boxes: to the recognition model a drawn face is a face. Name them now or later; once one looks like someone you've named it moves to **Suggestions**, and **Ignore** anything that isn't a face. Possible faces named automatically don't teach the recognizer until you confirm them (like webcam snapshots). Photos added before possible faces were kept: **Look in N photos added before** in the Possible faces list (about 6 photos a second, so roughly 25 minutes for 8,000; progress at the top; videos and online-only cloud photos are skipped). In a sample of 1,378 photos this found 732 possible faces. In an earlier sample of 400, about half of those scored 0.55-0.85 were real faces and half food, tyres, drawings and pets. The photo view also looks at the photo you're viewing on the spot (dashed boxes not saved yet; click one to add it, **Add all possible faces** adds every one; **Show possible faces** turns them off). A face hidden too much (behind someone else, or a hand over most of it) may still not be found: the detector scores those like junk.
 - **Draw a face** (photo view, or **B**): for a face the detector misses even as a possible face, for example one mostly hidden behind someone (the detector scored one 0.14, the same as junk). Drag a box around it; when you let go it's added as a face and opens, ready to name (**N**), or name it later under **Possible faces**, where it's marked **Drawn**. **Esc** cancels. The eyes, nose and mouth that line the face up for recognition come from the detector looking just inside your box; if it sees nothing there, they're placed where they sit in an average face. A box mostly on top of a face that's already there is refused. Photos only, not video frames. Like possible faces, a drawn face named automatically doesn't teach the recognizer until you confirm it.
-- **The photo, described** (photo view): **Describe photo** (or **D**) asks a vision model running in **LM Studio** on this computer to describe the photo in 2-3 sentences (setting, occasion, how many people and what they're doing) and to read any text in it (signs, shirts, cakes, captions, dates), which often tells you the occasion or who someone is. Nothing leaves the computer. **Every photo** describes each photo as you open it. **Describe all photos** describes every photo not described yet in the background (progress at the top; **Stop** pauses it and it carries on from there next time; videos, duplicates and online-only cloud photos are skipped): about 3.2 seconds a photo, so roughly 7 hours for 8,000. It sends one photo at a time on purpose: with three at once, LM Studio slowed to a crawl (1.3 instead of 48 tokens a second each, about 45 s a photo). Other programs using the graphics chip at the same time (another local AI app, for example) slow it down too. The model is told not to guess who anyone is. Each description is saved once per photo in `%APPDATA%\FaceLabels\descriptions.json` (not in `data\`, which is published); **Describe again** asks anew. Needs LM Studio running with its local server on (port 1234; another address: set `FACE_LLM_URL`) and a vision model downloaded, for example Qwen 3.6 35B-A3B: about 3 seconds a photo, and about 40 seconds the first time while LM Studio loads the model.
+- **The photo, described** (photo view): **Describe photo** (or **D**) asks a vision model running in **LM Studio** on this computer to describe the photo in 2-3 sentences (setting, occasion, how many people and what they're doing) and to read any text in it (signs, shirts, cakes, captions, dates), which often tells you the occasion or who someone is. With the default settings nothing leaves the computer. **Every photo** describes each photo as you open it. **Describe all photos** describes every photo not described yet in the background (progress at the top; **Stop** pauses it and it carries on from there next time; videos, duplicates and online-only cloud photos are skipped): about 3.2 seconds a photo, so roughly 7 hours for 8,000. It sends one photo at a time on purpose: with three at once, LM Studio slowed to a crawl (1.3 instead of 48 tokens a second each, about 45 s a photo). Other programs using the graphics chip at the same time (another local AI app, for example) slow it down too. The model is told not to guess who anyone is. Each description is saved once per photo in `%APPDATA%\FaceLabels\descriptions.json` (not in `data\`); **Describe again** asks anew. Needs LM Studio running with its local server on (port 1234) and a vision model downloaded, for example Qwen 3.6 35B-A3B: about 3 seconds a photo, and about 40 seconds the first time while LM Studio loads the model.
+  **Settings → Describe photo** chooses what describes: **Use** (Automatic: the server, or the built-in model when it doesn't answer; the server only; the built-in model only), the **Server address** (empty for `http://127.0.0.1:1234`, or `FACE_LLM_URL` if set), the **Model** (Automatic picks LM Studio's loaded vision model; or pick one) and an optional **API key**; **Test** shows which models the server has. Any server with the same OpenAI-style API works: LM Studio, Ollama (port 11434), llama.cpp, vLLM, Jan. Other servers don't say which of their models read pictures, so pick a vision model there. The server can be on another device, on your network or on the internet: then **each photo you describe is sent to that device** (the Settings tab says so, and warns when it's an unencrypted `http://` address on the internet: use `https://`, and only a server you control). For LM Studio on another computer, turn on **Serve on local network** there. The choices are kept in `%APPDATA%\FaceLabels\describe.json`.
   **Without LM Studio**, the panel offers **Download the built-in model** (0.8 GB, once, from Hugging Face; your photos aren't sent anywhere): Microsoft's Florence-2 large (MIT licence), which runs inside the app on the processor, about 2-3 seconds a photo. Its descriptions are plainer and less accurate: it says what it sees (a man in a cap, a jeep in a parking lot) but not what the picture is (a meme, a game screenshot, a scanned letter), and sometimes gets things wrong; it reads large, clear text well and small or curved text badly. Descriptions show which model wrote them; when LM Studio is running it is always used, and **Describe again** replaces a built-in description with LM Studio's.
 - **Layout:**
   - The sidebar (the lists and **People**) slides away with the **☰** button or **Ctrl+.**, so the faces get the whole width. The page remembers whether it was open. On narrow windows it slides over the faces instead, and closes when you pick something.
@@ -335,15 +338,13 @@ Face prints from different models can't be mixed. After changing models, run `py
 
 - **Wrong names:** raise the match setting (the tracker's Match strictness slider, or `--threshold 0.4`).
 - **Known people shown as Unknown:** lower it to about 0.3, or label more photos of them.
-- **Measuring on your webcam:** `python tools/webcam_eval.py` scores the live tracker on your confirmed webcam snapshots: correct, Unknown, wrong person, and stranger named (that person left out of the known people). It also compares ways of combining frames. Results go to `data/webcam_eval.json` (numbers only). It needs webcam faces collected with **Collect faces for labeling** and confirmed in the labeling tool. The more people they cover, the more the stranger figure means (on 2026-11-08 they were all of Chris).
+- **Measuring on your webcam:** `python tools/webcam_eval.py` scores the live tracker on your confirmed webcam snapshots: correct, Unknown, wrong person, and stranger named (that person left out of the known people). It also compares ways of combining frames. Results go to `data/webcam_eval.json` (numbers only). It needs webcam faces collected with **Collect faces for labeling** and confirmed in the labeling tool. The more people they cover, the more the stranger figure means (on 2026-11-08 they were all of one person).
 - **New-face groups mixing two people, or one person split across groups:** select faces within a group to name just those; the grouping distance is `cluster` in `REC_MODELS` in `face_id.py` (0.70 with ArcFace).
 
 ## Files
 
 - `data/faces.npz`: every face found, with its permanent ID, face print and quality
 - `data/thumbs.npz`: a small picture of each face (if it's missing, the labeling tool makes each picture again from the original photo, or shows a grey placeholder)
-
-All of `data/` stays on this computer: it's in `.gitignore` and not in the releases, and a new copy of the project starts with an empty one.
 - `data/photos.json`: every photo read: where it is, its fingerprint, and which photo a skipped copy duplicates
 - `data/labels.json`: the label of each face (name, ignored, named by you or automatically, names it is not)
 - `data/history.jsonl`: every labeling change, with the time; `data/backups/`: a copy of labels.json from each start of Face Labels (last 20)
@@ -351,15 +352,32 @@ All of `data/` stays on this computer: it's in `.gitignore` and not in the relea
 - `data/settings.json`: photo folders you've added
 - `data/photo_facts.json`: each photo's camera date and people tags (read again only when the photo, a file beside it, or its faces change)
 - `data/web_suggestions.json`: the saved Web search answer for each face searched (suggestions or none, with the date)
-- Outside the project, in `%APPDATA%\FaceLabels\`: the Web search keys (`google_vision_key.txt`, `aws_rekognition.json`) and this month's search counts (`vision_usage.json`, `rekognition_usage.json`). Never put the keys in the repository.
+- Outside the project, in `%APPDATA%\FaceLabels\` (the App section of **Settings** opens it):
+  - the Web search keys (`google_vision_key.txt`, `aws_rekognition.json`) and this month's search counts (`vision_usage.json`, `rekognition_usage.json`). Never put the keys in the repository.
+  - `describe.json`: the Describe photo settings (which describer, server address, model, optional API key); `descriptions.json`: the saved photo descriptions
+  - `webcam\`: snapshots from **Collect faces for labeling**; `presence\`: the presence log, if you turned it on
+  - `webview\`: the app window's browser storage (each page's options, per-person baselines and usual looks); `app.log`: the app's messages and errors
+- The keys and `describe.json` are plain files readable by your Windows account; anyone who can sign in as you can read them.
 - `websearch.py`: the Web search (Amazon + Google, combined); `tools\websearch_check.py`: the same search on picture files
 - `data/expr_eval/`: expression test sessions (`<date>-<time>.jsonl`) and feeling reports (`feel-<date>.jsonl`), only if you've run the Expression test or reported how you feel (numbers only: no pictures, no audio). **Delete test data** on the tracker page removes them.
 - `data/expr_calibration.json`, `data/va_fit.json`: fitted by `tools\expr_eval.py` from those (a few numbers each; delete them to go back to the defaults)
 - Live expression readings, voice and pulse aren't written to `data`. The expression model, MediaPipe and the voice model are optional (the tracker says so at startup if one is missing). The usual looks live in the browser's storage for the tracker page.
 
+All of `data/` stays on this computer: it's in `.gitignore` and not in the releases, and a new copy of the project starts with an empty one.
+
+**Where each setting is kept:** the Settings tab only shows them; each lives with the program it belongs to.
+
+| Setting | Kept in |
+|---|---|
+| Face tracking options, alert names, Labeling view options (picture size, order, blurry, possible faces, describe every photo) | the page's browser storage: `%APPDATA%\FaceLabels\webview\` for the .exe window, the browser's own for the .bat pages |
+| Photo folders added | `data/settings.json` |
+| Web search keys | `%APPDATA%\FaceLabels\google_vision_key.txt`, `aws_rekognition.json` |
+| Describe photo: describer, server, model, API key | `%APPDATA%\FaceLabels\describe.json` |
+| Environment variables (optional) | `FACE_DEVICE` (auto, gpu, npu, cpu), `FACE_MODEL` (recognition model), `FACE_LLM_URL` (default describe server), `GOOGLE_VISION_API_KEY` |
+
 Databases from before per-face labels are upgraded automatically the first time Face Labels starts (or with `python face_id.py migrate "<photo folder>"`). The old group files are moved to `data/backups/legacy-<date>/`.
 
-`data/backups/` stays on your computer and isn't in git: the copies change at every start, and git's history already keeps every committed `labels.json`.
+`data/backups/` holds the last 20 copies of `labels.json`; like the rest of `data/`, it's only on your computer, so back up `data/` yourself (it isn't in git).
 
 ## More documentation
 
@@ -368,4 +386,4 @@ Databases from before per-face labels are upgraded automatically the first time 
 - [Why expression reading is layered](../docs/WHY_LAYERED_EXPRESSION.md): the science behind the expression design
 - [Real-Time Facial Emotion Recognition](../Real-Time%20Facial%20Emotion%20Recognition.md): the expression design review
 - [Face Tracker](../face-tracker/README.md): the original standalone browser tracker
-- [CLAUDE.md](../CLAUDE.md) / [AGENTS.md](../AGENTS.md): conventions for coding assistants
+- [AGENTS.md](../AGENTS.md) (read by [CLAUDE.md](../CLAUDE.md)): layout, conventions, security rules and tests, for coding assistants and contributors

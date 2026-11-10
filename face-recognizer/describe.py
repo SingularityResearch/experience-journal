@@ -2,9 +2,13 @@
 describe.py - the labeling tool's "Describe photo": a short summary of a photo from a vision-language model
 running on this computer, to help work out the occasion and who might be there.
 
-The model runs in LM Studio (http://127.0.0.1:1234, OpenAI-style API; another address: FACE_LLM_URL), on this
-computer only: nothing is sent anywhere else. Any loaded vision model ("vlm") works; a loaded one is preferred,
-else LM Studio loads the first one it lists (about 40 s the first time). Reasoning is switched off
+The model runs in LM Studio (http://127.0.0.1:1234, OpenAI-style API), by default on this computer. The
+Settings tab can point it at another address, also on another device (then each photo described is sent there),
+and at any server with the same API (Ollama, llama.cpp, vLLM, Jan); FACE_LLM_URL sets the default address. The
+choices are kept in %APPDATA%\\FaceLabels\\describe.json: which describer to use, the server, a model (or automatic)
+and an optional API key. Automatic: with LM Studio any loaded vision model ("vlm"); a loaded one is preferred,
+else LM Studio loads the first one it lists (about 40 s the first time); other servers don't say which of their
+models read pictures, so their first model is used unless one is picked. Reasoning is switched off
 (reasoning_effort "none"): with it, Qwen 3.6 35B-A3B spent ~350 of 400 tokens thinking (6.6 s a photo);
 without it, 3.3 s for the same description.
 
@@ -16,6 +20,7 @@ Descriptions are saved in %APPDATA%\\FaceLabels\\descriptions.json (outside the 
 personal photos in words), one per photo (or video frame), so each is described once.
 """
 import base64
+import ipaddress
 import json
 import os
 import threading
@@ -23,18 +28,22 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 import florence
 
-URL = os.environ.get("FACE_LLM_URL", "http://127.0.0.1:1234").rstrip("/")
+URL = os.environ.get("FACE_LLM_URL", "http://127.0.0.1:1234").rstrip("/")    # the default server
 HOME = Path(os.environ.get("APPDATA", Path.home())) / "FaceLabels"
 STORE = HOME / "descriptions.json"
+CONFIG = HOME / "describe.json"  # the Settings tab's choices: {"use", "url", "model", "key"}
+USES = ("auto", "server", "builtin")   # server if it answers, else built-in / the server only / the built-in model only
 TIMEOUT = 300                    # the first call may wait for LM Studio to load the model
 PROMPT = ("Describe this photo for someone sorting a family photo library, in 2-3 short sentences: the setting "
           "and occasion, how many people there are and what they're doing. Then, on a new line starting 'Text:', "
           "any readable text (signs, shirts, cakes, captions, dates), or 'Text: none'. "
           "Don't guess who anyone is or name anyone.")
 _lock = threading.Lock()
+_cfg_lock = threading.Lock()     # describe.json: on Windows, replacing a file fails while it's being read
 _saved = None
 
 
@@ -42,41 +51,205 @@ class Unavailable(Exception):
     """No local vision model to ask (LM Studio not running, or no vision model in it)."""
 
 
-def _get(path, timeout=5):
-    with urllib.request.urlopen(URL + path, timeout=timeout) as r:
-        return json.load(r)
-
-
-def model():
-    """The vision model to use: LM Studio's (a loaded one if any, else the first it lists), else the built-in
-    one if it's downloaded. Raises Unavailable."""
+# --------------------------------------------------------------------------- settings
+def config():
+    """{"use", "url", "model", "key"} with the defaults filled in."""
     try:
-        return lmstudio_model()
-    except Unavailable as e:
+        with _cfg_lock:
+            c = json.loads(CONFIG.read_text("utf-8"))
+    except (OSError, ValueError):
+        c = {}
+    c = {"use": c.get("use") if c.get("use") in USES else "auto", "url": c.get("url") or URL,
+         "model": c.get("model") or "", "key": c.get("key") or ""}
+    return c
+
+
+def clean_url(url):
+    """'host:port', 'http://host:port/v1/' ... -> 'http://host:port'. Raises ValueError."""
+    url = (url or "").strip().rstrip("/")
+    if url and "://" not in url:
+        url = "http://" + url
+    if url.endswith("/v1"):
+        url = url[:-3]
+    u = urlparse(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ValueError("That isn't a server address: use one like http://127.0.0.1:1234 or http://192.168.1.20:1234")
+    try:
+        u.port
+    except ValueError:
+        raise ValueError("The port in that address isn't a number") from None
+    return url
+
+
+def set_config(**kw):
+    """Change some of the settings (use, url, model, key); an empty url means the default."""
+    c = config()
+    if "use" in kw:
+        if kw["use"] not in USES:
+            raise ValueError("Unknown choice")
+        c["use"] = kw["use"]
+    if "url" in kw:
+        url = clean_url(kw["url"]) if (kw["url"] or "").strip() else URL
+        if url != c["url"] and "key" not in kw:
+            c["key"] = ""                       # a key belongs to its server: never send it to another one
+        c["url"] = url
+    if "model" in kw:
+        c["model"] = str(kw["model"] or "").strip()[:200]
+    if "key" in kw:
+        c["key"] = str(kw["key"] or "").strip()[:500]
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    with _cfg_lock:
+        tmp = CONFIG.with_suffix(".tmp")
+        tmp.write_text(json.dumps(c, indent=1), "utf-8")
+        for attempt in range(20):               # something else (antivirus, backup) may have it open a moment
+            try:
+                os.replace(tmp, CONFIG)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.05)
+    return c
+
+
+def where(url):
+    """'this computer', 'your network' or 'the internet' for a server address, and whether pictures sent
+    there would travel unencrypted over the internet."""
+    u = urlparse(url)
+    host = u.hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return "this computer", False
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_loopback:
+            return "this computer", False
+        if ip.is_private or ip.is_link_local:
+            return "your network", False
+    except ValueError:
+        if host.endswith((".local", ".lan", ".home", ".internal")) or "." not in host:
+            return "your network", False
+    return "the internet", u.scheme != "https"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A describe server's answer is taken as it is: a redirect isn't followed (it would carry the API key
+    and the photo to another address)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+MAX_ANSWER = 4_000_000                   # bytes read from a describe server's answer
+MAX_TEXT = 4000                          # characters of a description kept
+
+
+def _open(req, timeout):
+    """JSON from a describe server: no redirects, at most MAX_ANSWER bytes."""
+    with _opener.open(req, timeout=timeout) as r:
+        data = r.read(MAX_ANSWER + 1)
+    if len(data) > MAX_ANSWER:
+        raise ValueError("The describe server's answer was too large")
+    return json.loads(data)
+
+
+def _get(path, timeout=5, url=None, key=None):
+    """GET from the saved server with its key, or from url with only the key given for it."""
+    c = config()
+    if url is None:
+        url, key = c["url"], c["key"]
+    req = urllib.request.Request(url + path)
+    if key:
+        req.add_header("Authorization", "Bearer " + key)
+    return _open(req, timeout)
+
+
+def server_models(url=None, key=None):
+    """The models a server offers: ([(id, reads pictures: True/None), ...], loaded ids). LM Studio says which
+    are vision models and which are loaded; other OpenAI-style servers only list ids. Raises Unavailable."""
+    no_answer = (f"No describe server answers at {url or config()['url']} (LM Studio: start it and turn on "
+                 f"its local server; on another device, also 'Serve on local network')")
+    try:
+        ms = _get("/api/v0/models", 3, url, key).get("data", [])      # LM Studio's own list
+        return [(m["id"], m.get("type") == "vlm") for m in ms if m.get("type") in ("vlm", "llm")], \
+               [m["id"] for m in ms if m.get("state") == "loaded"]
+    except (urllib.error.HTTPError, ValueError, KeyError, AttributeError, TypeError):
+        pass                                     # it answered, but isn't LM Studio: ask the standard way
+    except OSError as e:                         # nothing there (refused, timed out, unknown name): don't wait twice
+        raise Unavailable(no_answer) from e
+    try:
+        ms = _get("/v1/models", 3, url, key).get("data", [])
+        return [(m["id"], None) for m in ms if isinstance(m, dict) and m.get("id")], []
+    except urllib.error.HTTPError as e:
+        raise Unavailable(f"The describe server at {url or config()['url']} refused ({e.code}"
+                          f"{': check the API key' if e.code in (401, 403) else ''})") from e
+    except (OSError, ValueError, AttributeError) as e:
+        raise Unavailable(no_answer) from e
+
+
+def model(found=None):
+    """The vision model to use, as chosen in Settings: the server's (the one picked, or automatic), else the
+    built-in one if it's downloaded. Raises Unavailable."""
+    use = config()["use"]
+    if use == "builtin":
         if florence.ready():
             return florence.NAME
+        raise Unavailable(f"The built-in model isn't downloaded yet ({florence.SIZE / 1e9:.1f} GB)")
+    try:
+        return lmstudio_model(found)
+    except Unavailable as e:
+        if use == "auto" and florence.ready():
+            return florence.NAME
+        if use == "server":
+            raise
         raise Unavailable(f"{e}, or download the built-in model ({florence.SIZE / 1e9:.1f} GB, plainer descriptions)") from e
 
 
-def lmstudio_model():
-    try:
-        ms = _get("/api/v0/models").get("data", [])
-    except (OSError, ValueError) as e:
-        raise Unavailable("LM Studio isn't running (start it and turn on its local server, port 1234)") from e
-    vlm = [m for m in ms if m.get("type") == "vlm"]
+def lmstudio_model(found=None):
+    """The server's model to use: the one picked in Settings, else a loaded vision model, else the first
+    vision model (LM Studio), else the server's first model (other servers). Raises Unavailable."""
+    if isinstance(found, Unavailable):          # status() already asked, and nothing answered
+        raise found
+    ms, loaded = found or server_models()
+    pick = config()["model"]
+    if pick:
+        if ms and pick not in [m for m, _ in ms]:
+            raise Unavailable(f"The describe server has no model called {pick}: pick another in Settings")
+        return pick
+    vlm = [m for m, v in ms if v] if any(v is not None for _, v in ms) else [m for m, _ in ms]
     if not vlm:
-        raise Unavailable("LM Studio has no vision model: download one (for example Qwen 3.6) and try again")
-    loaded = [m for m in vlm if m.get("state") == "loaded"]
-    return (loaded or vlm)[0]["id"]
+        raise Unavailable("The describe server has no vision model: download one (for example Qwen 3.6) and try again")
+    return ([m for m in vlm if m in loaded] or vlm)[0]
 
 
 def status():
-    """{"ok": bool, "model" or "why"} for the page."""
-    b = florence.status()
+    """{"ok": bool, "model" or "why", "builtin", "config", "models"} for the page (never the API key)."""
+    b, c = florence.status(), config()
+    place, open_net = where(c["url"])
+    out = {"builtin": b, "config": {"use": c["use"], "url": c["url"], "model": c["model"], "key": bool(c["key"]),
+                                   "default_url": URL, "where": place, "unencrypted": open_net}}
+    found, out["models"] = None, []
+    if c["use"] != "builtin":                    # ask the server once, for the list and for the model to use
+        try:
+            found = server_models()
+            out["models"] = [m for m, v in found[0] if v is not False]
+        except Unavailable as e:
+            found = e
     try:
-        return {"ok": True, "model": model(), "builtin": b}
+        out.update(ok=True, model=model(found))
     except Unavailable as e:
-        return {"ok": False, "why": str(e), "builtin": b}
+        out.update(ok=False, why=str(e))
+    return out
+
+
+def test(url, key=None):
+    """For Settings' Test button: what the server at url offers, or why it doesn't answer."""
+    url, c = clean_url(url), config()
+    ms, loaded = server_models(url, key or (c["key"] if url == c["url"] else None))   # the saved key: its own server only
+    vision = [m for m, v in ms if v]
+    if any(v is not None for _, v in ms):       # LM Studio
+        return f"LM Studio answers: {len(vision)} vision model(s)" + (f": {', '.join(vision[:5])}" if vision else
+               ". Download one (for example Qwen 3.6) in LM Studio")
+    return f"The server answers: {len(ms)} model(s){': ' + ', '.join(m for m, _ in ms[:5]) if ms else ''}"
 
 
 def ask(jpeg, name=None):
@@ -91,17 +264,30 @@ def ask(jpeg, name=None):
             "messages": [{"role": "user", "content": [
                 {"type": "text", "text": PROMPT},
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
-    t = time.time()
-    req = urllib.request.Request(URL + "/v1/chat/completions", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+    t, c = time.time(), config()
+    headers = {"Content-Type": "application/json"}
+    if c["key"]:
+        headers["Authorization"] = "Bearer " + c["key"]
+    for attempt in (0, 1):
+        req = urllib.request.Request(c["url"] + "/v1/chat/completions", data=json.dumps(body).encode(), headers=headers)
+        try:
+            out = _open(req, TIMEOUT)
+            break
+        except urllib.error.HTTPError as e:
+            why = e.read()[:200].decode("utf-8", "replace")
+            if attempt == 0 and e.code in (400, 422) and "reasoning" in why:   # a server that doesn't know it
+                body.pop("reasoning_effort")
+                continue
+            raise Unavailable(f"The describe server couldn't describe it ({e.code}: {why})") from e
+        except OSError as e:
+            raise Unavailable(f"The describe server didn't answer: {e}") from e
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            out = json.load(r)
-    except urllib.error.HTTPError as e:
-        raise Unavailable(f"LM Studio couldn't describe it ({e.code}: {e.read()[:200].decode('utf-8', 'replace')})") from e
-    except OSError as e:
-        raise Unavailable(f"LM Studio didn't answer: {e}") from e
-    text = (out["choices"][0]["message"].get("content") or "").strip()
+        text = out["choices"][0]["message"].get("content") or ""
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise Unavailable("The describe server's answer wasn't understood") from None
+    if not isinstance(text, str):
+        raise Unavailable("The describe server's answer wasn't text")
+    text = text.strip()[:MAX_TEXT]
     if not text:
         raise Unavailable("The model gave an empty answer")
     return {"text": text, "model": name, "secs": round(time.time() - t, 1)}

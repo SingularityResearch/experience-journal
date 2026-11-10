@@ -1,8 +1,12 @@
-opencv-python>=4.8,<6
-numpy
-scikit-learn
-pillow
-pillow-heif
-onnxruntime-directml; sys_platform == "win32"
-mediapipe        # optional: face-shape cues and body posture in the live tracker (pulls in opencv-contrib-python)
-boto3            # optional: the labeling tool's Web search (Amazon celebrity recognition)
+# Versions known to work together (FaceRecognizer 1.7, Python 3.12, Windows 11). setup.bat installs these.
+# OpenCV: only opencv-contrib-python. mediapipe needs it, and it contains everything opencv-python has; having
+# both installed at different versions breaks cv2 (they install the same files).
+opencv-contrib-python==5.0.0.93
+numpy==2.5.4
+scikit-learn==1.9.1
+pillow==13.0.0
+pillow-heif==1.8.1
+onnxruntime-directml==1.24.4; sys_platform == "win32"
+mediapipe==1.2.0         # optional: face-shape cues and body posture in the live tracker
+boto3==1.43.123          # optional: the labeling tool's Web search (Amazon celebrity recognition)
+pywebview==6.2.1         # FaceRecognizer's window (python app.py, and the .exe)

@@ -154,7 +154,7 @@
       <label class="toggle" for="optAlertSound">Play a sound with alerts <input type="checkbox" id="optAlertSound" checked></label>
       <p class="hint">"Arrive" means first seen after at least 10 minutes out of view. Alerts show on the video and, if you allow it, as Windows notifications.</p>
       <label class="toggle" for="optPresence">Keep a presence log <input type="checkbox" id="optPresence"></label>
-      <p class="hint" id="presenceHint">Off by default. When on, it notes who was in view and when (names and times only, no pictures), in <code>%APPDATA%\FaceLabels\presence\</code> on this computer, not in the published data.</p>
+      <p class="hint" id="presenceHint">Off by default. When on, it notes who was in view and when (names and times only, no pictures), in <code>%APPDATA%\FaceLabels\presence\</code> on this computer, not in <code>data\</code>.</p>
       <div class="row"><button class="small" id="presenceShow">Show today</button></div>
       <ul class="faces" id="presenceList" hidden></ul>
     </details>
@@ -236,6 +236,7 @@
 
 <script src="/expression.js"></script>
 <script src="/signals.js"></script>
+<script src="/settings_bridge.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -278,6 +279,7 @@ async function loadPeople() {
     if (r.qEnroll != null) qEnroll = r.qEnroll;
     if (r.captureDir) $("optCollect").parentElement.title = `Saves snapshots to ${r.captureDir} for the labeling tool`;
     $("testCount").textContent = [r.sessions ? `${r.sessions} tests` : "", r.reports ? `${r.reports} reports` : ""].filter(Boolean).join(" · ");
+    if (r.threshold) $("optThresh").defaultValue = r.threshold;   // "Reset to defaults" in the app's Settings tab
     if (!threshTouched && r.threshold) {         // start the slider at the active model's measured setting
       $("optThresh").value = r.threshold; $("threshVal").textContent = (+r.threshold).toFixed(2);
     }
@@ -1009,6 +1011,55 @@ navigator.mediaDevices?.addEventListener?.("devicechange", () => listCameras());
 // Remember the camera and start it automatically next time (unless you pressed Stop camera)
 function remember(k, v) { try { localStorage.setItem("ft-" + k, v); } catch {} }
 function recall(k) { try { return localStorage.getItem("ft-" + k); } catch { return null; } }
+// The other options are remembered between visits too (the camera's mirror view follows the source instead)
+const KEEP = ["optPoints", "optTrail", "optUnknown", "optBlur", "optExpr", "optCalib", "optEvidence", "optVoice", "optPulse",
+              "optTalkGate", "optState", "optPose", "optHandGate", "optSmooth", "optThresh"];
+for (const id of KEEP) {
+  const el = $(id), v = recall("o-" + id);
+  if (v !== null) {
+    if (el.type === "checkbox") el.checked = v === "1"; else { el.value = v; el.dispatchEvent(new Event("input")); }
+  }
+  el.addEventListener("change", () => remember("o-" + id, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value));
+}
+if ($("optVoice").checked) startVoice();
+for (const id of ["alertWho", "optAlertUnknown"]) $(id).addEventListener("change", () => SettingsBridge.changed());   // the Settings tab's list
+// The app window's Settings tab (settings_bridge.js): every option of this page, in sections
+{
+  const c = SettingsBridge.control, D = "Face tracking: display", E = "Face tracking: expression and signals",
+        R = "Face tracking: recognition", A = "Face tracking: alerts and presence log";
+  SettingsBridge.init("track", [
+    c("camSelect", "Face tracking: camera", { noReset: true }),
+    c("optMirror", D, { hint: "Turned on for the webcam and off for video files when the source starts." }),
+    c("optPoints", D), c("optMesh", D), c("optTrail", D), c("optUnknown", D), c("optBlur", D),
+    c("optSmooth", D, { hint: "How much the boxes are smoothed between frames." }),
+    c("optExpr", E), c("optCalib", E, { hint: $("exprHint").textContent }), c("optEvidence", E),
+    c("optVoice", E), c("optPulse", E), c("optPose", E),
+    c("optTalkGate", E), c("optState", E), c("optHandGate", E, { hint: $("signalsHint").textContent }),
+    c("feelEvery", E, { label: "Ask how I feel (feeling check)" }),
+    c("optThresh", R, { hint: "Higher strictness means fewer wrong names but more \"Unknown\". The default is the measured best for the active model." }),
+    c("optCollect", R, { hint: $("collectHint").textContent }),
+    { section: A, id: "alertList", label: "Alert me when they arrive", type: "multi",
+      hint: "Pick the people to be told about. \"Arrive\" means first seen after at least 10 minutes out of view. Unknown: a face the recognizer can't name stays 30 seconds. Alerts show on the video and, if you allow it, as Windows notifications.",
+      options: () => {
+        const known = [...people].sort((a, b) => a.localeCompare(b)), low = new Set(known.map(p => p.toLowerCase()));
+        const typed = $("alertWho").value.split(",").map(s => s.trim()).filter(s => s && !low.has(s.toLowerCase()));
+        return [["Unknown", "Unknown (a face nobody is named for)"], ...known.map(p => [p, p]), ...typed.map(p => [p, p + " (not a known person now)"])];
+      },
+      get: () => {
+        const want = alertNames(), typed = $("alertWho").value.split(",").map(s => s.trim()).filter(Boolean);
+        const v = [...people.filter(p => want.has(p.toLowerCase())), ...typed.filter(s => !people.some(p => p.toLowerCase() === s.toLowerCase()))];
+        return $("optAlertUnknown").checked ? ["Unknown", ...v] : v;
+      },
+      set: v => {
+        $("alertWho").value = v.filter(x => x !== "Unknown").join(", ");
+        $("alertWho").dispatchEvent(new Event("change"));
+        $("optAlertUnknown").checked = v.includes("Unknown");
+        $("optAlertUnknown").dispatchEvent(new Event("change"));
+      } },
+    c("optAlertSound", A),
+    c("optPresence", A, { hint: "Names and times only, no pictures, in %APPDATA%\\FaceLabels\\presence\\ on this computer." }),
+  ]);
+}
 (async () => {
   await listCameras(recall("camera"));
   if (recall("autostart") !== "0") startCamera();

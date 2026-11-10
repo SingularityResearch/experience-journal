@@ -20,7 +20,6 @@ import base64
 import http.server
 import json
 import re
-import sys
 import threading
 import time
 import webbrowser
@@ -31,11 +30,13 @@ import cv2
 import numpy as np
 
 import face_id as F
+import localguard
 from localguard import refuse_reason
 
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "tracker_ui.html"
-SCRIPTS = {"/expression.js": HERE / "expression.js", "/signals.js": HERE / "signals.js"}
+SCRIPTS = {"/expression.js": HERE / "expression.js", "/signals.js": HERE / "signals.js",
+           "/settings_bridge.js": HERE / "settings_bridge.js"}
 PEOPLE = F.DATA / "people.npz"
 CALIBRATION = F.DATA / "expr_calibration.json"   # written by tools/expr_eval.py
 VA_FIT = F.DATA / "va_fit.json"                   # written by tools/expr_eval.py from your feeling reports
@@ -305,6 +306,7 @@ def make_handler(engine):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            localguard.page_headers(self)
             self.end_headers()
             try:
                 self.wfile.write(body)
@@ -321,6 +323,12 @@ def make_handler(engine):
             return reason
 
         def do_GET(self):
+            localguard.answer_errors(self, self._get, self.send_json)
+
+        def do_POST(self):
+            localguard.answer_errors(self, self._post, self.send_json)
+
+        def _get(self):
             if self.refused(write=False):
                 return
             path = self.path.split("?", 1)[0]
@@ -355,7 +363,7 @@ def make_handler(engine):
                 raise ValueError("empty or oversized request")
             return self.rfile.read(n)
 
-        def do_POST(self):
+        def _post(self):
             if self.refused(write=True):
                 return
             path, _, query = self.path.partition("?")
@@ -416,12 +424,7 @@ def make_handler(engine):
 def bind(port):
     """The tracker's web server socket on 127.0.0.1:port, not serving yet: attach() loads the models.
     OSError when the port is taken, usually by a tracker that's already running."""
-    if sys.platform == "win32":
-        # Windows lets a second program bind a port that's already in use when SO_REUSEADDR is set
-        # (Python's HTTP server sets it), and the old program keeps getting the connections. Without
-        # it the bind fails as it should, and the "already running" branch is taken.
-        http.server.ThreadingHTTPServer.allow_reuse_address = False
-    return http.server.ThreadingHTTPServer(("127.0.0.1", port), http.server.BaseHTTPRequestHandler)
+    return localguard.bind(port)          # no address reuse on Windows: a second copy gets OSError
 
 
 def attach(srv):

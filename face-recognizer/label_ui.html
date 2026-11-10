@@ -348,6 +348,7 @@
   <div class="side" id="vside"></div>
 </div>
 
+<script src="/settings_bridge.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -947,9 +948,9 @@ async function openPhoto(i) {
       ${nm && nm !== IGN ? `<button class="btn" data-v="r">Not ${esc(nm)} <kbd>R</kbd></button>` : ""}
       ${nm !== IGN ? `<button class="btn" data-v="x">Ignore <kbd>X</kbd></button>` : ""}</div>
     ${others.length ? `<div class="meta">Also in this ${info?.video != null ? "frame" : "photo"}: ${others.map(f => esc(f.name ? label(f.name) : "someone not named yet")).join(", ")}. Click a box to switch to that face.</div>` : ""}
-    ${info?.exists ? `<div class="clue" id="desc"><h4>The photo, described <small>(by a model on this computer)</small></h4>
+    ${info?.exists ? `<div class="clue" id="desc"><h4>The photo, described <small id="descwhere">(by a model on this computer)</small></h4>
       <div id="desctext"></div>
-      <div class="acts" style="margin-top:6px"><button class="btn small" id="descgo" title="Asks a vision model on this computer (LM Studio, or the built-in one) to describe the photo and read any text in it (nothing leaves this computer)">Describe photo <kbd>D</kbd></button>
+      <div class="acts" style="margin-top:6px"><button class="btn small" id="descgo" title="Asks the photo describer chosen in Settings (LM Studio on this computer unless you changed it, or the built-in model) to describe the photo and read any text in it">Describe photo <kbd>D</kbd></button>
       <label class="vtoggle"><input type="checkbox" id="descauto" ${store.get("describe") === "1" ? "checked" : ""}> Every photo</label></div>
       <div class="acts" style="margin-top:6px"><button class="btn small" id="descall" title="Describes every photo not described yet, in the background (progress at the top; Stop there pauses it, and it carries on from where it stopped)">Describe all photos</button> <small id="desccount"></small></div>
       <div class="acts" style="margin-top:6px;display:none" id="descget"><button class="btn small" id="descgetgo" title="Downloads Florence-2, a smaller vision model that runs inside this app when LM Studio isn't available (from Hugging Face; your photos aren't sent anywhere). Plainer descriptions than LM Studio's.">Download the built-in model</button> <small id="descgetmsg"></small></div></div>` : ""}
@@ -1050,7 +1051,7 @@ function drawMode(on) {
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   };
 }
-// "Describe photo": a vision model in LM Studio on this computer describes the photo (describe.py); saved
+// "Describe photo": a vision model (LM Studio on this computer by default; Settings can change it) describes the photo (describe.py); saved
 // per photo outside the project, so each photo is described once. D asks (again), "Every photo" asks on opening.
 function showDescription(d) {
   const t = $("#desctext");
@@ -1063,6 +1064,9 @@ async function describeStatus(i) {
   let r;
   try { r = await get("/api/describe/status"); } catch { return; }
   if (vIndex !== i || !$("#desccount")) return;
+  const away = r.ok && r.model !== r.builtin?.name && r.config && r.config.where !== "this computer";
+  $("#descwhere").textContent = away ? `(by a model on ${r.config.where === "your network" ? "another device on your network" : "a server on the internet"}, ${new URL(r.config.url).host})`
+                                     : "(by a model on this computer)";
   const left = r.photos - r.described, b = r.builtin || {};
   $("#desccount").textContent = r.ok ? `${r.described.toLocaleString()} of ${r.photos.toLocaleString()} described` : r.why;
   if (left <= 0 || !r.ok) $("#descall").style.display = "none";
@@ -1315,7 +1319,8 @@ addEventListener("keydown", e => {
 });
 document.querySelectorAll("nav [data-v]").forEach(b => b.onclick = () => go({ v: b.dataset.v }));
 $("#undo").onclick = undo;
-$("#low").onchange = e => { showLow = e.target.checked; render(); };
+$("#low").checked = showLow = store.get("low") === "1";       // remembered
+$("#low").onchange = e => { showLow = e.target.checked; store.set("low", showLow ? "1" : "0"); render(); };
 $("#navbtn").onclick = () => setNav($("#shell").classList.contains("closed"));
 addEventListener("keydown", e => { if (e.ctrlKey && e.key === ".") { e.preventDefault(); $("#navbtn").click(); } });
 setNav(narrowNav.matches ? false : store.get("nav") !== "0", false);
@@ -1334,6 +1339,80 @@ $("#psort").value = store.get("psort") || "name";
 $("#psort").onchange = () => { store.set("psort", $("#psort").value); loadSummary(); };
 $("#tilesz").value = store.get("tile") || 88; setTile($("#tilesz").value);
 $("#tilesz").oninput = e => { setTile(e.target.value); store.set("tile", e.target.value); };
+
+// The app window's Settings tab (settings_bridge.js): this page's settings, Web search keys and Describe photo
+{
+  const c = SettingsBridge.control, L = "Labeling", W = "Web search", P = "Describe photo";
+  const flag = (id, key, label, def, hint) => ({ section: L, id, label, type: "toggle", def, hint,
+    get: () => (store.get(key) ?? (def ? "1" : "0")) === "1",
+    set: v => { store.set(key, v ? "1" : "0"); const el = $("#" + id); if (el) el.checked = !!v; } });
+  let desc = {};
+  SettingsBridge.init("label", [
+    c("tilesz", L, { label: "Face picture size" }),
+    c("psort", L, { label: "Order of the people list" }),
+    c("low", L, { label: "Show blurry faces", hint: "Faces too blurry or small to learn from are hidden from the review lists unless this is on." }),
+    flag("possible", "possible", "Show possible faces in photos", true,
+         "Dashed boxes on things the detector thinks may be faces (blurry, turned or partly hidden). Nothing is saved until you click one."),
+    flag("descauto", "describe", "Describe every photo as it's opened", false, "Uses the photo describer below; descriptions stay on this computer."),
+    { section: L, id: "folders", label: "Photo folders added", type: "info",
+      get: () => (SUM?.settings.folders || []).join("\n") || "None yet: use Add photos." },
+    { section: W, id: "wskeys", label: "Keys", type: "info",
+      hint: "Web search sends a face to Amazon (celebrity recognition) and its photo to Google (pages with the same picture), only when you click Web search. The keys are your own (how to make them: the Web search section of the README) and stay in %APPDATA%\\FaceLabels on this computer. Save an empty key to remove it.",
+      get: async () => { const r = await get("/api/websearch/key");
+        return `Amazon: ${r.services.rekognition ? "key saved" : "no key"}. Google: ${r.services.vision ? "key saved" : "no key"}.`; } },
+    { section: W, id: "wsgoogle", label: "Google Cloud Vision API key", type: "form", button: "Save key",
+      fields: [{ name: "key", placeholder: "API key", secret: true }] },
+    { section: W, id: "wsaws", label: "Amazon Rekognition key", type: "form", button: "Save",
+      fields: [{ name: "id", placeholder: "Access key ID" }, { name: "secret", placeholder: "Secret access key", secret: true },
+               { name: "region", placeholder: "us-east-1", size: 9 }] },
+    { section: P, id: "describer", label: "Describes photos", type: "info",
+      get: async () => {
+        desc = await get("/api/describe/status");
+        const b = desc.builtin || {};
+        if (b.running) setTimeout(SettingsBridge.changed, 2000);
+        return [desc.ok ? (desc.model === b.name ? desc.model : `${desc.model}, on ${desc.config.url}`) : desc.why,
+                `${desc.described.toLocaleString()} of ${desc.photos.toLocaleString()} photos described.`,
+                b.running ? `Built-in model: ${Math.floor(b.done * 100 / (b.size_mb * 1e6))}% downloaded.`
+                  : b.ready ? "Built-in model: downloaded." : b.error ? `Built-in model: ${b.error}` : "Built-in model: not downloaded."].join("\n");
+      } },
+    { section: P, id: "describeUse", label: "Use", type: "select", def: "auto",
+      options: () => [["auto", "Automatic: the server, or the built-in model when it doesn't answer"],
+                      ["server", "The server only"], ["builtin", "The built-in model only"]],
+      get: () => desc.config?.use || "auto",
+      set: v => post("/api/describe/config", { use: v }) },
+    { section: P, id: "describeUrl", label: "Server address", type: "text", hidden: () => desc.config?.use === "builtin",
+      hint: () => {
+        const c = desc.config || {};
+        const base = `LM Studio (its local server on), or another server with the same API: Ollama (port 11434), llama.cpp, vLLM, Jan. Empty for the default, ${c.default_url || "http://127.0.0.1:1234"}.`;
+        if (c.where === "your network") return base + " This is another device on your network: each photo you describe is sent to it (in LM Studio there, turn on \"Serve on local network\").";
+        if (c.where === "the internet") return base + ` This is a server on the internet: each photo you describe is sent to it${c.unencrypted ? ", unencrypted (http): anyone on the way could see the photos; use https" : " (encrypted, https)"}. Only use a server you control.`;
+        return base;
+      },
+      get: () => desc.config?.url || "",
+      set: v => post("/api/describe/config", { url: v }) },
+    { section: P, id: "describeModel", label: "Model", type: "select", def: "", hidden: () => desc.config?.use === "builtin",
+      hint: "Automatic: LM Studio's loaded vision model, else its first one. Other servers don't say which models read pictures: pick a vision model.",
+      options: () => { const m = desc.models || [], pick = desc.config?.model;
+        return [["", "Automatic"], ...m.map(x => [x, x]), ...(pick && !m.includes(pick) ? [[pick, pick + " (not on the server)"]] : [])]; },
+      get: () => desc.config?.model || "",
+      set: v => post("/api/describe/config", { model: v }) },
+    { section: P, id: "describeTest", label: "Check the server", type: "button", button: "Test", hidden: () => desc.config?.use === "builtin",
+      hint: "Asks the server above which models it has." },
+    { section: P, id: "describeKey", label: "API key", type: "form", button: "Save key", hidden: () => desc.config?.use === "builtin",
+      hint: () => `Only if the server asks for one (for example behind a proxy). ${desc.config?.key ? "A key is saved." : "None saved."} Save an empty key to remove it. Kept in %APPDATA%\\FaceLabels on this computer.`,
+      fields: [{ name: "key", placeholder: "API key", secret: true }] },
+    { section: P, id: "descget", label: "Built-in model", type: "button",
+      button: () => `Download the built-in model (${((desc.builtin?.size_mb || 831) / 1000).toFixed(1)} GB)`,
+      hidden: () => !!(desc.builtin?.ready || desc.builtin?.running),
+      hint: "Florence-2 large, from Hugging Face; runs inside this app on the processor, so photos stay on this computer. Plainer descriptions than LM Studio's." },
+  ], {
+    wsgoogle: a => post("/api/websearch/key", { key: a.key || "" }),
+    wsaws: a => post("/api/websearch/aws", { id: a.id || "", secret: a.secret || "", region: a.region || "us-east-1" }),
+    descget: () => post("/api/describe/getmodel", {}),
+    describeTest: () => post("/api/describe/test", { url: desc.config?.url || "" }),
+    describeKey: a => post("/api/describe/config", { key: a.key || "" }),
+  });
+}
 
 (async () => {
   try {

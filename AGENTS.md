@@ -88,7 +88,7 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     photos/keys go, Web search keys and caps, the model download against a local server, labeling and undo, the
     face-picture migration, the empty new-user start, and a tripwire on the measured thresholds). `conftest.py`
     points `FACE_ROOT`/`FACE_HOME` at a temp folder before anything is imported: no models, no real data.
-  - `.github/workflows/checks.yml` — CI on every push/PR: Node tests, ruff, pyflakes and pytest (no LFS, no models).
+  - `.github/workflows/checks.yml` — CI on every push/PR: Node tests, ruff and pytest (no LFS, no models).
 
 ## Running
 

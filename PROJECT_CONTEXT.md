@@ -44,7 +44,7 @@ with Face tracking, Labeling and (since v1.8) Settings tabs, each program still 
 ```
 X:\source\facial-recognition\
 ├── AGENTS.md (the guide), CLAUDE.md (reads AGENTS.md), PROJECT_CONTEXT.md, README.md
-├── .github\workflows\checks.yml   CI: node tests + pyflakes
+├── .github\workflows\checks.yml   CI: node tests, ruff, pytest
 ├── Real-Time Facial Emotion Recognition.md   expression design review (LM Studio export)
 ├── docs\
 │   └── WHY_LAYERED_EXPRESSION.md            why expression reading is layered, with references
@@ -585,7 +585,8 @@ Structure and tests: done the same evening (in v1.8):
   also the Settings bridge's origin checks, and that every page script parses and is served and packed). Writing
   them found two bugs, fixed: saving Amazon keys broke in the refactor (caught before any commit) and
   `clean_url("http://")` was accepted.
-- **CI:** Node tests, ruff (`ruff.toml`: E, F, W, B; long lines not enforced), pyflakes and pytest, no LFS;
+- **CI:** Node tests, ruff (`ruff.toml`: E, F, W, B, which include the pyflakes rules; long lines not
+  enforced) and pytest, no LFS;
   pinned Linux packages checked to exist.
 - **Structure:** `labels.py` 1,750 → 775 lines (`photofiles.py`, `photofacts.py`, `relocate.py`, `importer.py`,
   re-exported); one `face_id.iou`; the servers share `localguard.Handler`; the tab page left the Python string

@@ -1,0 +1,60 @@
+// settings_bridge.js in a stub page: which windows it answers, and what "set" and "act" do.
+const test = require("node:test");
+const assert = require("node:assert");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+function page({ ancestor = "http://127.0.0.1:8764" } = {}) {
+  const listeners = {}, posted = [];
+  const parent = { postMessage: (msg, origin) => posted.push({ msg, origin }) };
+  const ctx = {
+    setTimeout, clearTimeout, console, Event: class { constructor(t) { this.type = t; } },
+    location: { ancestorOrigins: ancestor === undefined ? undefined : [ancestor] },
+    document: { addEventListener() {}, getElementById: () => null, querySelector: () => null },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    parent,
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "settings_bridge.js"), "utf8") + "\nthis.SettingsBridge = SettingsBridge;", ctx);
+  let value = false;
+  ctx.SettingsBridge.init("test", [
+    { section: "S", id: "flag", label: "Flag", type: "toggle", get: () => value, set: v => { value = v; } },
+  ], { ping: async a => ({ message: "pong " + a.x }) });
+  const send = async (data, origin = "http://127.0.0.1:8764", source = parent) => {
+    await listeners.message({ data, origin, source });
+    await new Promise(r => setTimeout(r, 0));
+  };
+  return { send, posted, get value() { return value; }, parent };
+}
+
+test("answers the app window: state, set and actions", async () => {
+  const p = page();
+  await p.send({ fs: "get" });
+  const state = p.posted.at(-1);
+  assert.strictEqual(state.origin, "http://127.0.0.1:8764");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(state.msg.items.map(i => [i.id, i.value]))), [["flag", false]]);   // from the page's realm
+  assert.ok(!("set" in state.msg.items[0]) && !("get" in state.msg.items[0]));
+  await p.send({ fs: "set", id: "flag", value: true });
+  assert.strictEqual(p.value, true);
+  await p.send({ fs: "act", id: "ping", args: { x: 1 }, rid: 7 });
+  const reply = p.posted.find(m => m.msg.fs === "result");
+  assert.deepStrictEqual([reply.msg.rid, reply.msg.ok, reply.msg.value.message], [7, true, "pong 1"]);
+});
+
+test("ignores other websites, other local pages and other windows", async () => {
+  const p = page();
+  await p.send({ fs: "set", id: "flag", value: true }, "https://evil.example");
+  await p.send({ fs: "set", id: "flag", value: true }, "http://127.0.0.1:3000");      // not the real parent
+  await p.send({ fs: "set", id: "flag", value: true }, "http://127.0.0.1:8764", {});  // not the parent window
+  assert.strictEqual(p.value, false);
+  assert.strictEqual(p.posted.length, 0);
+});
+
+test("a failed action is reported, not thrown", async () => {
+  const p = page();
+  await p.send({ fs: "act", id: "missing", rid: 1 });
+  assert.ok(!p.posted.some(m => m.msg.fs === "result"));
+  assert.ok(p.posted.some(m => m.msg.fs === "state"));
+});

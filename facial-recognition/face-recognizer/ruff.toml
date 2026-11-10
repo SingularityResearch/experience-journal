@@ -1,0 +1,13 @@
+# ruff (Python checker), run by CI and before committing, from face-recognizer\: python -m ruff check
+line-length = 120
+target-version = "py312"
+
+[lint]
+# pyflakes (F), pycodestyle errors and warnings (E, W), likely bugs (B)
+select = ["E", "F", "W", "B"]
+ignore = [
+    "E501",   # long lines: wrapped by hand near 120 where it reads better, not enforced
+    "E731",   # small named lambdas are used on purpose
+    "E741",   # one-letter names such as l and I in short loops
+    "B905",   # zip() over lists known to be the same length
+]

@@ -1,0 +1,90 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Face Recognizer</title><style>
+[hidden] { display: none !important; }   /* whatever display a class gives, hidden hides */
+:root { color-scheme: dark; }
+html, body { margin: 0; height: 100%; background: #0d1512; color: #dfe8e4; font: 14px "Segoe UI", system-ui, sans-serif; }
+body { display: flex; flex-direction: column; }
+nav { display: flex; gap: 4px; padding: 6px 10px 0; background: #111c18; border-bottom: 1px solid #24342e; }
+nav button { font: inherit; color: #9fb2ab; background: none; border: 1px solid transparent; border-bottom: none;
+  border-radius: 8px 8px 0 0; padding: 8px 18px; cursor: pointer; }
+nav button:hover { color: #dfe8e4; }
+nav button[aria-selected="true"] { color: #dfe8e4; background: #0d1512; border-color: #24342e; margin-bottom: -1px; }
+nav small { margin-left: 8px; color: #6f827b; }
+nav .ver { margin-left: auto; align-self: center; padding-bottom: 6px; color: #6f827b; font-size: 12px; }
+nav .ver button { font: inherit; color: #9fb2ab; background: none; border: 0; padding: 0 0 0 8px; cursor: pointer; text-decoration: underline; }
+main { flex: 1; position: relative; }
+iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; }
+iframe.on { visibility: visible; }
+.wait { position: absolute; inset: 0; display: grid; place-content: center; color: #9fb2ab; }
+.wait.err { color: #f0a08f; white-space: pre-wrap; padding: 24px; }
+.wait[hidden] { display: none; }          /* display: grid above would otherwise keep it on screen */
+#settings { position: absolute; inset: 0; overflow: auto; padding: 18px 24px 40px; background: #0d1512; z-index: 1; }
+#settings[hidden] { display: none; }
+.sets, #sec-programs { max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
+#sec-programs { width: 100%; }
+.sets h1 { font-size: 18px; font-weight: 600; margin: 0 0 2px; }
+.sets > p { margin: 0; color: #9fb2ab; }
+.sec { border: 1px solid #24342e; border-radius: 10px; background: #111c18; padding: 4px 16px 10px; }
+.sec h2 { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+.sec h2 button { margin-left: auto; }
+.sec .note { color: #9fb2ab; margin: 6px 0; }
+.row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.3fr); gap: 4px 18px; align-items: center;
+  padding: 9px 0; border-top: 1px solid #1b2924; }
+.row:first-of-type { border-top: 0; }
+.row[hidden] { display: none; }
+.row > label, .row > .lab { color: #dfe8e4; }
+.row .hint { grid-column: 1 / -1; color: #7f938c; font-size: 12.5px; line-height: 1.45; }
+.row .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row .info { white-space: pre-wrap; color: #b7c7c1; }
+.row.off { opacity: .55; }
+.sets input[type=text], .sets input[type=password], .sets select { font: inherit; color: #dfe8e4; background: #0d1512;
+  border: 1px solid #2c3f38; border-radius: 7px; padding: 5px 8px; min-width: 0; flex: 1; }
+.sets input[type=range] { flex: 1; accent-color: #4fc3a1; }
+.sets input[type=checkbox] { width: 18px; height: 18px; accent-color: #4fc3a1; }
+.sets output { min-width: 3.2em; text-align: right; color: #9fb2ab; font-variant-numeric: tabular-nums; }
+.sets button.b { font: inherit; font-size: 13px; color: #dfe8e4; background: #18332a; border: 1px solid #2f5a4b; border-radius: 7px;
+  padding: 5px 12px; cursor: pointer; }
+.sets button.b:hover { background: #1f4236; }
+.sets button.b:disabled { opacity: .5; cursor: default; }
+.sets .msg { color: #9fb2ab; font-size: 12.5px; }
+.sets .msg.err { color: #f0a08f; }
+.sets code { color: #b7c7c1; }
+.multi { display: grid; gap: 6px; flex: 1; min-width: 0; }
+.multi .box { max-height: 240px; overflow: auto; border: 1px solid #2c3f38; border-radius: 7px; background: #0d1512; padding: 4px; }
+.multi .box label { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 5px; cursor: pointer; }
+.multi .box label:hover { background: #15241f; }
+.multi .box label[hidden] { display: none; }
+.multi .box .none { color: #7f938c; padding: 3px 6px; }
+.multi .box label.sel { color: #fff; }
+.multi .top { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+</style></head><body>
+<nav role="tablist">
+  <button role="tab" id="tab-track" aria-selected="true" onclick="show('track')">Face tracking<small id="st-track">starting…</small></button>
+  <button role="tab" id="tab-label" aria-selected="false" onclick="show('label')">Labeling<small id="st-label">starting…</small></button>
+  <button role="tab" id="tab-set" aria-selected="false" onclick="show('set')">Settings</button>
+  <span class="ver"><span id="ver">v{{VERSION}}</span><button id="upd" onclick="checkUpdate()" title="Asks GitHub for the latest release (only when you click)">Check for updates</button></span>
+</nav>
+<main>
+  <div class="wait" id="wait">Loading the face models…</div>
+  <!-- visibility, not display:none, so the hidden tab keeps tracking and collecting faces -->
+  <iframe id="f-track" title="Face tracking" allow="camera; microphone; autoplay; fullscreen"></iframe>
+  <iframe id="f-label" title="Labeling" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+  <div id="settings" hidden><div class="sets" id="sets">
+    <div><h1>Settings</h1><p>Everything you can set in the app, in one place. Changes apply at once and are remembered;
+      the same options stay on the Face tracking and Labeling tabs too.</p></div>
+    <section class="sec" id="sec-app"><h2>App</h2>
+      <div class="row"><span class="lab">Version</span><div class="ctl"><span>v{{VERSION}}</span>
+        <button class="b" id="upd2" onclick="checkUpdate()">Check for updates</button></div>
+        <div class="hint">Asks GitHub for the latest release, only when you click.</div></div>
+      <div class="row"><span class="lab">Faces, names and labels</span><div class="ctl"><code id="p-data">data</code>
+        <button class="b" onclick="openDir('data')">Open folder</button></div>
+        <div class="hint">The <code>data</code> folder beside the app. It stays on this computer; keep it out of any public repository.</div></div>
+      <div class="row"><span class="lab">Keys, descriptions, snapshots, log</span><div class="ctl"><code id="p-private">%APPDATA%</code>
+        <button class="b" onclick="openDir('private')">Open folder</button></div>
+        <div class="hint">Web search keys, photo descriptions, webcam snapshots, the presence log and this app's messages (app.log).</div></div>
+      <div class="row"><span class="lab">Switch tabs</span><div class="ctl"><span>Ctrl+1 Face tracking, Ctrl+2 Labeling, Ctrl+3 Settings</span></div></div>
+    </section>
+    <div id="sec-programs"></div>
+  </div></div>
+</main>
+<script src="/app_ui.js"></script></body></html>

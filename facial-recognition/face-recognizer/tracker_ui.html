@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Face Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+  /* Layout: viewfinder on the left, controls and readout on the right; stacks on narrow screens */
+  :root {
+    --bg: #eef1f0; --panel: #ffffff; --fg: #18211f; --muted: #5d6b67;
+    --line: #d3dbd8; --accent: #0e9f6e; --warn: #c2410c; --unknown: #e0574a;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1413; --panel: #171e1c; --fg: #e4ebe8; --muted: #8b9a95;
+            --line: #2a3431; --accent: #34d399; --warn: #fb923c; --unknown: #ff7b6e; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); overflow: hidden; }
+  /* Full window: header on top, the video filling the rest. The controls are a fly-out panel on the
+     right: open, it takes its column and the video shrinks beside it (on narrow windows it slides over
+     the video instead); closed, the video gets the whole width. */
+  .wrap { height: 100vh; padding: 12px 16px 16px; display: grid; column-gap: 0; row-gap: 12px;
+          grid-template-columns: minmax(0, 1fr) var(--side, 356px); grid-template-rows: auto minmax(0, 1fr);
+          transition: grid-template-columns .22s ease; }
+  .wrap.closed { --side: 0px; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #sideBtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  #sideBtn .bars { display: inline-block; width: 14px; height: 10px; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; position: relative; }
+  #sideBtn .bars::after { content: ""; position: absolute; left: 0; right: 0; top: 2px; border-top: 2px solid currentColor; }
+  h1 { margin: 0; font: 600 22px var(--mono); letter-spacing: -.01em; }
+  .status { font: 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+  .status.live .dot { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .status.err { color: var(--warn); } .status.err .dot { background: var(--warn); }
+
+  .stage { position: relative; background: #000; border-radius: 6px; overflow: hidden; min-height: 0; height: 100%; }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .stage.mirror video, .stage.mirror canvas { transform: scaleX(-1); }
+  .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px; color: #c9d4d0; padding: 24px; }
+  .empty p { margin: 0; max-width: 44ch; }
+  [hidden] { display: none !important; }
+
+  aside { min-width: 0; height: 100%; overflow: hidden; }
+  aside .side-in { width: 340px; margin-left: 16px; height: 100%; overflow-y: auto; overscroll-behavior: contain;
+                   display: flex; flex-direction: column; gap: 16px; padding-right: 4px; transition: opacity .18s; }
+  .wrap.closed aside .side-in { opacity: 0; visibility: hidden; transition: opacity .18s, visibility 0s .22s; }
+  @media (max-width: 900px) {          /* narrow: the panel slides over the video */
+    .wrap { --side: 0px; }
+    aside { position: fixed; top: 60px; right: 0; bottom: 0; width: min(372px, 92vw);   /* below the header's button */ z-index: 10; overflow: visible;
+            background: var(--bg); box-shadow: -12px 0 32px #0006; padding: 12px 12px 12px 0;
+            transform: translateX(0); transition: transform .22s ease; }
+    aside .side-in { width: auto; margin-left: 12px; }
+    .wrap.closed aside { transform: translateX(105%); box-shadow: none; }
+  }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .label { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat b { display: block; font: 600 26px var(--mono); font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  button { font: 600 13px var(--sans); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06231a; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=text] { font: 13px var(--sans); padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); width: 100%; box-sizing: border-box; }
+  .toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; background: var(--panel); color: var(--fg);
+           border: 1px solid var(--accent); border-radius: 8px; padding: 10px 16px; font-size: 14px; box-shadow: 0 6px 24px #0008; }
+  select { font: 13px var(--sans); padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); width: 100%; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); margin: -6px 0 0; }
+  .faces { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+  .faces li { display: flex; justify-content: space-between; gap: 8px; }
+  .faces .who { font-weight: 600; font-family: var(--sans); font-size: 13px; }
+  .faces .unk { color: var(--unknown); }
+  .faces .none { color: var(--muted); }
+  .faces .usual, .faces .unsure { color: var(--muted); }
+  .faces .change { color: var(--accent); font-weight: 600; }
+  .faces .evidence { color: var(--muted); font-size: 11px; justify-content: flex-start; margin-top: -4px; padding-left: 16px; }
+  button.small { font-size: 12px; padding: 6px 10px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .people { display: flex; flex-wrap: wrap; gap: 6px; }
+  details.card > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+                                   transform: rotate(-45deg); transition: transform .15s; margin: 0 2px 2px 0; }
+  details.card[open] > summary::before { transform: rotate(45deg); margin-bottom: 4px; }
+  details.card > summary .num { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.on { border-color: var(--accent); color: var(--fg); background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
+  .feel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .scale { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .scale span:last-child { text-align: right; }
+  .scale b { font: 600 15px var(--mono); color: var(--fg); min-width: 2ch; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <header>
+    <h1>Face Tracker</h1>
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">Connecting to recognizer…</span></div>
+    <button id="sideBtn" aria-controls="side" aria-expanded="true" title="Show or hide the controls (Ctrl+.)"><span class="bars"></span><span id="sideBtnText">Hide controls</span></button>
+  </header>
+
+  <div class="stage mirror" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="empty" id="empty">
+      <p>Pick a camera and press Start camera, or open a video file. Faces you named in the labeling tool are shown by name.</p>
+    </div>
+  </div>
+
+  <aside id="side" aria-label="Controls"><div class="side-in">
+    <div class="card">
+      <div class="label">Source</div>
+      <div class="row">
+        <button class="primary" id="camBtn">Start camera</button>
+        <button id="fileBtn">Open video</button>
+        <input type="file" id="fileInput" accept="video/*" hidden>
+      </div>
+      <label for="camSelect" class="label">Camera</label>
+      <select id="camSelect"><option value="">Default camera</option></select>
+    </div>
+
+    <div class="card">
+      <div class="label">Live readout</div>
+      <div class="stats">
+        <div class="stat"><b id="count">0</b><span>faces</span></div>
+        <div class="stat"><b id="known">0</b><span>recognized</span></div>
+        <div class="stat"><b id="fps">0</b><span>checks / sec</span></div>
+      </div>
+      <ul class="faces" id="faces"><li class="none">No faces tracked</li></ul>
+      <p class="hint" id="devices" hidden></p>
+    </div>
+
+    <details class="card" id="peopleCard">
+      <summary class="label">Known people <span id="peopleCount" class="num"></span></summary>
+      <div class="people" id="people"><span class="chip">Loading…</span></div>
+    </details>
+
+    <details class="card" id="alertCard">
+      <summary class="label">Alerts and presence log</summary>
+      <label for="alertWho" class="label">Alert me when they arrive</label>
+      <input type="text" id="alertWho" list="peopleList" placeholder="Names, separated by commas" autocomplete="off">
+      <datalist id="peopleList"></datalist>
+      <label class="toggle" for="optAlertUnknown">Alert when an unknown face stays 30 seconds <input type="checkbox" id="optAlertUnknown"></label>
+      <label class="toggle" for="optAlertSound">Play a sound with alerts <input type="checkbox" id="optAlertSound" checked></label>
+      <p class="hint">"Arrive" means first seen after at least 10 minutes out of view. Alerts show on the video and, if you allow it, as Windows notifications.</p>
+      <label class="toggle" for="optPresence">Keep a presence log <input type="checkbox" id="optPresence"></label>
+      <p class="hint" id="presenceHint">Off by default. When on, it notes who was in view and when (names and times only, no pictures), in <code>%APPDATA%\FaceLabels\presence\</code> on this computer, not in <code>data\</code>.</p>
+      <div class="row"><button class="small" id="presenceShow">Show today</button></div>
+      <ul class="faces" id="presenceList" hidden></ul>
+    </details>
+
+    <div class="card feel" id="feelCard" hidden>
+      <div class="label">How do you feel right now?</div>
+      <label for="feelWho" class="label">Who's answering</label>
+      <select id="feelWho"></select>
+      <div>
+        <div class="scale"><span>Unpleasant</span><b id="feelVOut">4</b><span>Pleasant</span></div>
+        <input type="range" id="feelV" min="1" max="7" step="1" value="4" aria-label="Unpleasant to pleasant, 1 to 7">
+      </div>
+      <div>
+        <div class="scale"><span>Calm</span><b id="feelAOut">4</b><span>Energized</span></div>
+        <input type="range" id="feelA" min="1" max="7" step="1" value="4" aria-label="Calm to energized, 1 to 7">
+      </div>
+      <div class="row">
+        <button class="small primary" id="feelSave">Save</button>
+        <button class="small" id="feelSkip">Skip</button>
+      </div>
+      <p class="hint" style="margin:0">Saved with numbers summarizing the 30 seconds before this question (no pictures, no audio).</p>
+    </div>
+
+    <details class="card" id="testCard">
+      <summary class="label">Expression test <span id="testCount" class="num"></span></summary>
+      <p class="hint" style="margin:0">Measures how well expression reading works on your own face and webcam. You're asked to make each of the 7 expressions for a few seconds, then to talk for a few seconds and to rest your chin on your hand (to measure the talking and hand detectors). Only numbers are saved (the expression asked for, the model's scores, face-shape cues, body points and talking signals; no pictures, no audio) in data\expr_eval. Run tools\expr_eval.py to see the results.</p>
+      <div class="row">
+        <button class="small" id="testBtn">Start test</button>
+      </div>
+      <div class="label">Feeling check</div>
+      <p class="hint" style="margin:0">The only way to learn whether any of these signals track how you actually feel: now and then you say how you feel (two 1-7 scales). tools\expr_eval.py compares the answers with the signals and, once there are enough, fits valence/arousal to you.</p>
+      <div class="row">
+        <button class="small" id="feelBtn">Report how I feel</button>
+        <select id="feelEvery" aria-label="Ask me how I feel" style="width:auto">
+          <option value="0">Don't ask</option><option value="2">Ask every 2 min</option>
+          <option value="5">Ask every 5 min</option><option value="10">Ask every 10 min</option>
+        </select>
+      </div>
+      <div class="row"><button class="small" id="testDelete">Delete test data</button></div>
+    </details>
+
+    <div class="card">
+      <div class="label">Display</div>
+      <label class="toggle" for="optMirror">Mirror view <input type="checkbox" id="optMirror" checked></label>
+      <label class="toggle" for="optPoints">Keypoints (eyes, nose, mouth) <input type="checkbox" id="optPoints" checked></label>
+      <label class="toggle" for="optMesh" title="MediaPipe's 478 face points joined into triangles, each shaded by the angle it faces">Face mesh (triangles) <input type="checkbox" id="optMesh"></label>
+      <label class="toggle" for="optTrail">Motion trail <input type="checkbox" id="optTrail" checked></label>
+      <label class="toggle" for="optUnknown">Show unknown faces <input type="checkbox" id="optUnknown" checked></label>
+      <label class="toggle" for="optBlur">Blur unknown faces <input type="checkbox" id="optBlur"></label>
+      <label class="toggle" for="optExpr">Show expression <input type="checkbox" id="optExpr" checked></label>
+      <label class="toggle" for="optCalib">Calibrate to each person <input type="checkbox" id="optCalib" checked></label>
+      <p class="hint" id="exprHint">Expression is read from sharp, camera-facing frames and averaged over the last second. With calibration on, each named person's usual look is learned over about a minute; a reading that departs from it is highlighted, one that matches it is marked "usual". Calibration also learns each person's normal for every other signal (posture, movement, voice, pulse...), alone and in company, over a few minutes, and the evidence shows what is unusual for them. All of it stays in this browser.</p>
+      <label class="toggle" for="optEvidence">Show expression evidence <input type="checkbox" id="optEvidence"></label>
+      <div class="row">
+        <select id="forgetWho" aria-label="Person to forget" style="width:auto"></select>
+        <button class="small" id="calibReset">Forget what's learned</button>
+      </div>
+      <label class="toggle" for="optVoice">Listen to voice (microphone) <input type="checkbox" id="optVoice"></label>
+      <label class="toggle" for="optPulse">Webcam pulse (experimental) <input type="checkbox" id="optPulse"></label>
+      <label class="toggle" for="optTalkGate">Skip expression while talking <input type="checkbox" id="optTalkGate"></label>
+      <label class="toggle" for="optState">Use state model for expression <input type="checkbox" id="optState"></label>
+      <label class="toggle" for="optPose">Body posture <input type="checkbox" id="optPose"></label>
+      <label class="toggle" for="optHandGate">Skip expression when a hand is on the face <input type="checkbox" id="optHandGate"></label>
+      <p class="hint" id="signalsHint">Voice is analysed live and never recorded: loudness, pitch, speaking rate, and the voice model's arousal/valence. Pulse reads tiny skin-colour changes and needs a still face in steady light. Body posture adds head height, shoulders, lean, body movement, breathing, hand on face and crossed arms. The "skip" and "state model" options change the expression reading and aren't measured yet; run the Expression test and tools\expr_eval.py first.</p>
+      <div>
+        <div class="toggle"><span>Smoothing</span><span id="smoothVal" class="num">0.50</span></div>
+        <input type="range" id="optSmooth" min="0" max="0.9" step="0.05" value="0.5" aria-label="Smoothing">
+      </div>
+      <div>
+        <div class="toggle"><span>Match strictness</span><span id="threshVal" class="num">0.35</span></div>
+        <input type="range" id="optThresh" min="0.2" max="0.6" step="0.01" value="0.35" aria-label="Match strictness">
+      </div>
+      <p class="hint">Higher strictness means fewer wrong names but more "Unknown". 0.35 is the measured best for your photos with the ArcFace model.</p>
+      <label class="toggle" for="optCollect" title="Save snapshots of faces in view for the labeling tool">Collect faces for labeling <input type="checkbox" id="optCollect"></label>
+      <p class="hint" id="collectHint">While a face stays in view, a sharp snapshot is saved every few seconds (up to 12 per face) with who the tracker thinks it is and how sure. The labeling tool picks them up by itself: it names the ones it's sure of and asks you about the rest.</p>
+    </div>
+  </div></aside>
+</div>
+
+<script src="/expression.js"></script>
+<script src="/signals.js"></script>
+<script src="/settings_bridge.js"></script>
+<script src="/tracker_ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+# Versions known to work (Python 3.12). The fusion needs only numpy.
+numpy==2.5.4

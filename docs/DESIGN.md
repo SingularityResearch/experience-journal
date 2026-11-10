@@ -1,6 +1,6 @@
 # Experience Journal: design and plan
 
-Status: plan agreed 2026-11-10; nothing built yet. This document is the reference for what we're building, why,
+Status: plan agreed 2026-11-10; the fusion engine (§6) is built and tested on simulated data; the rest isn't built yet. This document is the reference for what we're building, why,
 and in what order. Change it when a decision changes.
 
 ## 1. What it is
@@ -93,16 +93,50 @@ when that's switched on; it never depends on the journal.
 
 ## 6. Fusion (the core)
 
-1. **Personal scale.** Each signal becomes a z-score against that person's own normal for the situation (time of day,
-   alone/company), learned continuously (the face recognizer's `signals.js` `Baselines` already does this).
-2. **Trust.** Each reading carries a quality 0-1 (face visible and frontal, light, mic signal-to-noise, watch contact);
-   low quality counts for less or nothing.
-3. **Windows.** Exponentially weighted moving averages at about 30 seconds (reactions), 10 minutes (moods,
-   episodes) and a day (drift).
-4. **Dimensions.** Weighted sums of the z-scores, with weights fitted per person to their check-ins (ridge
-   regression). Contribution of a sensor = weight x z, so contributions add up exactly to the estimate.
-5. **Later:** a state-space model (Kalman filter) for missing sensors and confidence bands, kept only if it beats
-   step 4 on held-out check-ins. Agreement between independent sensors is shown and raises confidence.
+Code: `fusion/` (implemented 2026-11-10, tested on simulated people; no real sensors yet). A three-layer model,
+simple first, each extra step earning its place on held-out data.
+
+### Layer 1: clean signals on each person's own scale (`baselines.py`, `windows.py`, `away.py`)
+- **Robust normal** per person and signal: median and typical spread (MAD), not mean and SD, so rare spikes don't
+  warp it; kept per situation (part of day x alone/company) with the overall normal as fallback until a situation has
+  enough readings (`MIN_N`); slowly adapting (one reading per 30 s, last 5,000). Learning pauses while the person's
+  10-minute "away" score is above `FREEZE_AWAY` (3), so a bad stretch doesn't become the new normal.
+- **z-score** of every reading against that normal; **trust** 0-1 per reading (face visible, signal-to-noise, contact).
+- **Windows**: trust-weighted exponential moving averages over 30 s (reactions), 10 min (moods) and a day (drift),
+  correct for uneven gaps; each also reports its **support** (decayed trust), which falls while a sensor is silent.
+  An hour of window values is kept so signals can be read a little back in time (**lags**).
+- **"Away from your normal"** before any check-ins: the trust-weighted root mean square of the z-scores; each signal's
+  share is exact (the contributions add up to score²). Says how unusual a moment is, not what it means.
+
+### Layer 2: the explained estimate, fitted to check-ins (`linear.py`, `engine.py`)
+- Per dimension (energized, pleasant, ...): rating = the person's usual + sum of weight x feature, features being each
+  signal's 30-second and 10-minute windows read at that signal's lag. Contributions add up exactly to the estimate;
+  `importance()` gives how far a typical swing of each feature moves it (comparable across features).
+- **Family model** (Bayesian, hierarchical): everyone's weights start at the family average and move only as far as
+  their own check-ins justify; the strength of that pull is chosen by marginal likelihood. Features are scaled to unit
+  spread before fitting. Every estimate has an honest spread (weight uncertainty + leftover noise), shown as a band;
+  a new person starts from the family's weights with a wider band.
+- **Lags** chosen per signal from the check-ins (largest correlation of the 30-second window among 0, 1, 2, 5 min).
+  Finding: with a slow mood and a few check-ins a day, delays under about 2 minutes are hard to tell apart from
+  check-ins; they'll be measured from reactions to known moments (content start, phase 2).
+- At every check-in the engine logs what each attached model predicted *before* seeing it (`prediction_log`), so
+  models are compared on live, honest predictions.
+
+### Layer 3: a Kalman filter over time (`kalman.py`) — optional, used only if it wins
+- Hidden level pulled back to the person's usual (time constant 1 h); each sensor's 30-second window a noisy view
+  (loading, noise from data), noise scaled by trust; check-ins a direct view. Handles sensors at different rates and
+  dropouts (the band widens). Explainable: each update's move is credited to its sensor, credits decay with the level,
+  and they add up exactly to the departure from usual.
+- **Result on the simulated fortnight (2026-11-10): it loses** — error 0.76 vs 0.63 for layer 2, and its 70% band
+  held only 54%. Likely reasons, to work on when real data exists: no delays in the filter, consecutive readings
+  treated as independent, loadings estimated from noisy ratings. Until it beats layer 2 on held-out weeks, layer 2 is
+  the estimate shown.
+
+### How it's measured (`evaluate.py`)
+Forward chaining (fit on earlier days, predict the next; never shuffled), against "your average" and "your last
+check-in", with the 70% band's coverage. Simulated fortnight (2 people, 4 sensors, one of them irrelevant, 5 check-ins
+a day): layer 2 error 0.62 vs 1.00 for "your average" and 1.23 for "your last check-in", correlation 0.81, 70% band
+holds 70%; heart rate ranked most informative, the irrelevant signal least. `tools/demo_fusion.py` prints a "why" table.
 
 ## 7. Training, interventions and the subliminal module
 

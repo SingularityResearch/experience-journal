@@ -1,0 +1,7 @@
+# ruff (Python checker), run by CI and before committing: python -m ruff check .
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "E731", "E741", "B905"]

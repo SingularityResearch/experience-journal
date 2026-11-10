@@ -26,6 +26,29 @@ Everything runs locally. No photos leave your computer, with one exception you s
 - **The code:** install [Git LFS](https://git-lfs.com) first, then `git clone` the repo. The face models are stored with Git LFS. Without it you get small placeholder files instead, and the programs stop with *"Model files weren't downloaded: install Git LFS and run git lfs pull"*. Run `git lfs install` and `git lfs pull` to fix that. `python fetch_models.py` (which setup.bat also runs) downloads just the models.
 - **Download ZIP** on GitHub includes the models: the repository's *Include Git LFS objects in archives* setting is on (since 2026-11-08). Unzip it and run `setup.bat` as above.
 
+## macOS and Linux
+
+The app also runs on **macOS 14 or later on Apple Silicon** (M1 and later; the recognition libraries have no Intel
+Mac builds) and on **Linux** (built and tested on Ubuntu; x86_64, and ARM from source).
+
+- **Builds:** every push builds the app for all three systems on GitHub (the run's artifacts, kept 14 days):
+  `FaceRecognizer-macos-arm64.zip` (`FaceRecognizer.app`; signed and notarized once the project's Apple signing keys
+  are set, else right-click it and choose **Open** the first time) and `FaceRecognizer-linux-x64.tar.gz` (unpack it,
+  then run `FaceRecognizer/FaceRecognizer`).
+- **From the code:** `./setup.sh` once (a Python 3.12 environment in `.venv` with the pinned libraries and, on Linux,
+  the Qt app window; then the models), then `./start.sh`, or double-click `FaceRecognizer.command` on a Mac.
+  Python 3.12 first: `brew install python@3.12` (macOS) or `sudo apt install python3.12 python3.12-venv` (Ubuntu).
+- **Where things are kept:** the built app keeps its models and `data` in `~/Library/Application Support/FaceRecognizer`
+  (macOS) or `~/.local/share/FaceRecognizer` (Linux), and what's private to you (keys, alerts, presence log, the
+  window's storage, app.log) in `.../FaceLabels` beside it. Run from the code, models and `data` stay in the project
+  folder, as on Windows.
+- **In the browser instead:** `./start.sh --browser` (or `FaceRecognizer --browser`) opens the same tabs in your web
+  browser. The app does this by itself where no app window can open.
+- **What's different:** recognition runs on the CPU (OpenCV), measured to give the same names as the GPU path.
+  `FACE_DEVICE=gpu` tries CoreML (macOS) or CUDA (Linux), not yet measured against it. The labeling tool's handling of
+  online-only cloud files (iCloud, OneDrive) is Windows-only for now. On first use, macOS asks once whether the app
+  may use the camera and microphone.
+
 ## Setup (once)
 
 Double-click **setup.bat**. It installs Python 3.12 if needed (with winget), installs the libraries in `requirements.txt`, downloads any face models that are missing (`fetch_models.py`), and checks that they load. The .bat files all use that Python 3.12 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`); to run the `.py` files yourself, use the same one, because a different Python on your PATH may not have OpenCV and ONNX Runtime installed.

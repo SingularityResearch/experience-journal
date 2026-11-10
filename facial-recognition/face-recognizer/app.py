@@ -6,8 +6,10 @@ label_tool.py on 8765) and page, exactly as when started from recognize.bat / la
 window shows both pages, one per tab. The tracker keeps running while the Labeling tab is shown.
 If either is already running from its .bat, that copy is used instead of starting a second one.
 
-Run:  python app.py            (or FaceRecognizer.exe, built with build_app.bat)
-Needs pywebview (pip install pywebview); the window is Edge WebView2, part of Windows 11.
+Run:  python app.py            (or FaceRecognizer.exe, built with build_app.bat; the app on macOS and Linux)
+      python app.py --browser  (the same tab page in the default web browser instead of a window of its own)
+Needs pywebview (pip install pywebview). The window is Edge WebView2 on Windows, WebKit on macOS, and GTK or Qt on
+Linux; where none can open (a Linux system without those libraries), the app falls back to the browser by itself.
 """
 import json
 import os
@@ -19,6 +21,7 @@ import traceback
 import urllib.request
 from urllib.parse import parse_qsl, urlparse
 
+import desktop
 import localguard
 import paths
 
@@ -167,7 +170,7 @@ def shell_handler():
                     d = where.get(self.path.split("what=", 1)[-1])
                     if d:
                         d.mkdir(parents=True, exist_ok=True)
-                        os.startfile(d)
+                        desktop.open_folder(d)
                 body = {k: str(v) for k, v in where.items()}
             elif path == "/update":
                 body = latest_release()
@@ -198,7 +201,7 @@ WINDOW = None                               # the app window, once made (main)
 
 def attention(unread, flash):
     """New alerts (the tracker's inbox): say how many in the window's title, which shows on its taskbar button, and
-    flash the taskbar button when one just happened and the window isn't the one in front (Windows only)."""
+    when one just happened draw the eye to the window (desktop.attention: taskbar flash, Dock bounce, urgent)."""
     w = WINDOW
     if w is None:
         return
@@ -207,21 +210,8 @@ def attention(unread, flash):
         w.set_title(f"{TITLE} · {unread} new alert{'s' if unread != 1 else ''}" if unread else TITLE)
     except Exception:
         pass
-    if not flash or sys.platform != "win32":
-        return
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        class FLASHWINFO(ctypes.Structure):
-            _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND), ("dwFlags", wintypes.DWORD),
-                        ("uCount", wintypes.UINT), ("dwTimeout", wintypes.DWORD)]
-        hwnd = int(w.native.Handle.ToInt64())
-        # FLASHW_ALL | FLASHW_TIMERNOFG: caption and taskbar button, until the window comes to the front
-        info = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, 0x3 | 0xC, 0, 0)
-        ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
-    except Exception:
-        traceback.print_exc()
+    if flash:
+        desktop.attention(w)
 
 
 def camera_allowed(uri):
@@ -236,8 +226,9 @@ def camera_allowed(uri):
 
 def allow_camera(window):
     """Let this window's tracker page use the camera and microphone without asking each time (WebView2 asks by
-    default). Any other page, including other programs on 127.0.0.1, still gets WebView2's prompt."""
-    if getattr(window, "_camera_ok", False):
+    default). Any other page, including other programs on 127.0.0.1, still gets WebView2's prompt. Windows only: on
+    macOS the system asks once for the app (the .app's NSCameraUsageDescription), and on Linux the window toolkit."""
+    if sys.platform != "win32" or getattr(window, "_camera_ok", False):
         return
     window._camera_ok = True
     try:
@@ -306,22 +297,44 @@ def run_programs():
     threading.Thread(target=go, daemon=True).start()
 
 
-def main():
+def in_browser(shell):
+    """The tab page in the default web browser (--browser, or no window toolkit): the servers keep running until
+    this process is stopped (Ctrl+C, or closing its terminal)."""
+    import webbrowser
+    print(f"{TITLE} is running at {shell} (in your web browser). Stop it with Ctrl+C.")
+    webbrowser.open(shell)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    os._exit(0)
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
     HOME.mkdir(parents=True, exist_ok=True)
     if getattr(sys, "frozen", False) or sys.stdout is None:      # no console: keep the messages in a log
         log = open(HOME / "app.log", "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
         print(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} {TITLE} starting")
-    import webview
     shell = shell_server()                          # first: the programs started next trust this page to frame them
     run_programs()
-    window = webview.create_window(TITLE, shell, width=1440, height=920, min_size=(900, 600),
-                                   background_color="#0d1512")
-    global WINDOW
-    WINDOW = window
-    window.events.loaded += lambda: allow_camera(window)
-    # private_mode=False keeps each page's remembered options and per-person baselines between runs
-    webview.start(private_mode=False, storage_path=str(HOME / "webview"))
+    if "--browser" in args:
+        in_browser(shell)
+    try:
+        import webview
+        window = webview.create_window(TITLE, shell, width=1440, height=920, min_size=(900, 600),
+                                       background_color="#0d1512")
+        global WINDOW
+        WINDOW = window
+        window.events.loaded += lambda: allow_camera(window)
+        # private_mode=False keeps each page's remembered options and per-person baselines between runs
+        webview.start(private_mode=False, storage_path=str(HOME / "webview"))
+    except Exception:                               # no window toolkit here (e.g. Linux without GTK or Qt)
+        traceback.print_exc()
+        print("No app window could open here: using the web browser instead.")
+        in_browser(shell)
     os._exit(0)                                     # window closed: stop both servers and background readers
 
 

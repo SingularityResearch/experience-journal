@@ -168,11 +168,13 @@ ARC_TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.73
 
 
 # Where the neural networks run. FACE_DEVICE = auto (default) | gpu | npu | cpu
-#   gpu  ONNX Runtime + DirectML (any DirectX 12 GPU; on this PC the Radeon 8060S): fastest
+#   gpu  ONNX Runtime + DirectML (Windows: any DirectX 12 GPU; on this PC the Radeon 8060S): fastest. On macOS
+#        CoreML and on Linux CUDA (onnxruntime-gpu installed) are tried too, but only when asked for (gpu, not
+#        auto): their results haven't been compared with the measured ones yet (tools/hw_bench.py does that)
 #   npu  ONNX Runtime + VitisAI (Ryzen AI NPU; run from the ryzen-ai conda env): low power, but
 #        measured slower than the GPU and CPU for one face at a time; first start compiles ~6 min
 #   cpu  OpenCV DNN
-#   auto GPU if available, else CPU
+#   auto DirectML if available, else CPU (every system: Windows, macOS, Linux)
 # Measured on this PC (ArcFace, one face): GPU 2.6-3.6 ms, CPU 12 ms, NPU 25 ms.
 DEVICE = os.environ.get("FACE_DEVICE", "auto").lower()
 
@@ -211,7 +213,17 @@ def _ort_runner(path, npu_static=None):
         with ACCEL_LOCK:                         # loading a model while another runs crashed onnxruntime too
             sess = ort.InferenceSession(str(path), so, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
         return _locked(sess), "GPU (DirectML)"
+    for provider, label in UNMEASURED_GPU:          # only when asked for by name (FACE_DEVICE=gpu), see DEVICE
+        if DEVICE == "gpu" and provider in avail:
+            with ACCEL_LOCK:
+                sess = ort.InferenceSession(str(path), so, providers=[provider, "CPUExecutionProvider"])
+            return _locked(sess), label
     return None
+
+
+# GPU paths not yet compared with the measured ones (DirectML, OpenCV CPU): used only with FACE_DEVICE=gpu
+UNMEASURED_GPU = [("CoreMLExecutionProvider", "GPU (CoreML, not yet measured)"),
+                  ("CUDAExecutionProvider", "GPU (CUDA, not yet measured)")]
 
 
 def _locked(sess):

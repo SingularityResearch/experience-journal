@@ -30,3 +30,6 @@ face-recognizer/models/florence2/
 
 # Everything the tools learn from your photos stays on this computer: faces, names, labels, benchmarks
 face-recognizer/data/
+
+# The Python environment setup.sh makes (macOS, Linux)
+face-recognizer/.venv/

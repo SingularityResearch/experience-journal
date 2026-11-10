@@ -1,12 +1,15 @@
 r"""
 paths.py - where the programs keep things, and the one way they write files.
 
-  ROOT  the folder with models\ and data\: beside the source files, or beside FaceRecognizer.exe when built
-        (the .exe carries only the code and pages and shares this folder's models and data with the .bat
-        launchers). FACE_ROOT=<folder> uses another one (tests, a second copy).
-  HOME  %APPDATA%\FaceLabels: what is private to this computer's user and never belongs in the project
-        (Web search keys, describe settings and descriptions, webcam snapshots, presence log, the app window's
-        storage, app.log). FACE_HOME=<folder> uses another one (tests).
+  ROOT  the folder with models\ and data\: beside the source files; when built, beside FaceRecognizer.exe on
+        Windows (the .exe carries only the code and pages and shares this folder's models and data with the .bat
+        launchers), and in the user's application data on macOS and Linux, where the app itself is read-only
+        (a signed .app, an AppImage): ~/Library/Application Support/FaceRecognizer, ~/.local/share/FaceRecognizer.
+        FACE_ROOT=<folder> uses another one (tests, a second copy).
+  HOME  what is private to this computer's user and never belongs in the project (Web search keys, describe
+        settings and descriptions, webcam snapshots, presence log, alerts, the app window's storage, app.log):
+        %APPDATA%\FaceLabels on Windows, ~/Library/Application Support/FaceLabels on macOS,
+        $XDG_DATA_HOME/FaceLabels (~/.local/share/FaceLabels) on Linux. FACE_HOME=<folder> uses another one.
 
 Nothing here imports the rest of the project, so every module (and the tests) can use it.
 """
@@ -16,10 +19,30 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = Path(os.environ["FACE_ROOT"]).resolve() if os.environ.get("FACE_ROOT") else (
-    Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else HERE)
-HOME = Path(os.environ["FACE_HOME"]).resolve() if os.environ.get("FACE_HOME") else (
-    Path(os.environ.get("APPDATA", Path.home())) / "FaceLabels")
+
+
+def user_data(name, platform=sys.platform, env=os.environ, home=None):
+    """This user's application-data folder for name, as each system expects it."""
+    home = Path(home or Path.home())
+    if platform == "win32":
+        return Path(env.get("APPDATA") or home / "AppData" / "Roaming") / name
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / name
+    return Path(env.get("XDG_DATA_HOME") or home / ".local" / "share") / name
+
+
+def _root():
+    if os.environ.get("FACE_ROOT"):
+        return Path(os.environ["FACE_ROOT"]).resolve()
+    if not getattr(sys, "frozen", False):
+        return HERE
+    if sys.platform == "win32":
+        return Path(sys.executable).resolve().parent
+    return user_data("FaceRecognizer")
+
+
+ROOT = _root()
+HOME = Path(os.environ["FACE_HOME"]).resolve() if os.environ.get("FACE_HOME") else user_data("FaceLabels")
 
 
 def replace_file(tmp, dest, tries=20):

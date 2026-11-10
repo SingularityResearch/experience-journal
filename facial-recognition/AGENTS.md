@@ -82,6 +82,13 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     (every place a person's data lives, listed at its top; their faces stay as Ignored places). The labeling tool's
     person view (**Their data…**, `/api/person/export`, `/api/person/forget`); the tracker page forgets its browser
     storage itself (`forgetPerson`, sent by the app's tab page after a forget).
+  - `desktop.py` — what the app asks of the operating system on Windows, macOS and Linux: show a folder, draw the
+    eye to the window for an alert. `paths.user_data` gives each system's application-data folder.
+  - `setup.sh`, `start.sh`, `FaceRecognizer.command` — macOS and Linux: a `.venv` with the pinned libraries (Linux
+    adds `pywebview[qt]` for the app window), the models, and starting the app (`--browser` for the web browser).
+  - `packaging/macos/` — the app's entitlements (camera, microphone) and `sign_and_notarize.sh`, which CI runs when
+    the signing secrets are set (MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID,
+    APPLE_API_KEY_P8_BASE64).
   - `setup.bat` — installs Python 3.12 (winget) and `requirements.txt` (pinned versions; OpenCV as
     `opencv-contrib-python` only, which mediapipe needs; setup removes a plain `opencv-python` if one is installed).
     `requirements-build.txt` adds PyInstaller for `build_app.bat`; `requirements-dev.txt` has pytest and ruff.

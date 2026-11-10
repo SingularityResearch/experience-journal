@@ -15,8 +15,9 @@ measured by every sensor we choose to switch on, on any of our devices. It turns
 - later, **predictions**, **well-timed prompts**, **coaching** for changes you choose, and **training**, including a
   separate experimental **subliminal** module, all measured for whether they actually work for you.
 
-The face recognizer (`facial-recognition`) stays its own standalone program. It can send its numbers to the journal
-when that's switched on; it never depends on the journal.
+The face recognizer stays its own standalone program and repository; this repository aggregates it (a git subtree in
+`facial-recognition/`, kept in step with its own repository) as the first sensor source. It can send its numbers to
+the journal when that's switched on; it never depends on the journal.
 
 ## 2. Principles (non-negotiable)
 

@@ -23,3 +23,29 @@ jobs:
         run: python -m ruff check .
       - name: Tests
         run: python -m pytest tests -q
+
+  face-recognizer:
+    # The face recognizer (facial-recognition/, a subtree of its own repository): the same checks it runs there.
+    # Its models (Git LFS) aren't needed: its tests use no models.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: facial-recognition/face-recognizer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Browser code tests and page scripts
+        run: node --test tests/*.test.js
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test requirements
+        run: pip install -r requirements-dev.txt numpy==2.5.4 opencv-contrib-python-headless==5.0.0.93
+      - name: "Python checker (ruff)"
+        run: python -m ruff check .
+      - name: Python tests
+        run: python -m pytest tests -q

@@ -33,3 +33,16 @@ Tests from the start: `python -m pytest tests -q` and `python -m ruff check .` (
 - `tools/demo_fusion.py` — prints a "why" table and the layer comparison on simulated data.
 - Results quoted in DESIGN.md are on simulated data until real sensors exist; say so whenever they're quoted.
 - Git remote: `origin` (private GitHub repository); push only with the owner's go-ahead.
+
+## The face recognizer inside this repository (`facial-recognition/`)
+
+- A git subtree of the standalone repository SingularityResearch/facial-recognition (public, code only), with its
+  history. Its own guide, [facial-recognition/AGENTS.md](facial-recognition/AGENTS.md), applies to everything in that
+  folder (measured thresholds, privacy rules, its tests).
+- It must keep working on its own: nothing in it may import or require journal code. The journal reads from it (its
+  signals, through an opt-in on its side), never the other way round.
+- Make changes to it in its own repository first, then bring them here:
+  `git subtree pull --prefix=facial-recognition <path or URL of facial-recognition> main`. A change made here first
+  can be sent back with `git subtree push`, but keep its public repository free of anything journal-specific or personal.
+- Its models are Git LFS files here too (about 400 MB); its `data/` is never committed (both .gitignore files).
+- CI runs its checks as a second job (Node tests, ruff, pytest, in `facial-recognition/face-recognizer`).

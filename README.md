@@ -22,4 +22,14 @@ python -m ruff check .
 python -m pytest tests -q            # about 25 s: includes a simulated fortnight
 ```
 
-Related: the face recognizer (separate, standalone repository `facial-recognition`) can send its numbers here.
+## What's in this repository
+
+| Folder | What |
+|---|---|
+| `fusion/` | the fusion engine: personal normals, multi-window signals, explainable family model, Kalman layer, evaluation |
+| `facial-recognition/` | the face recognizer (FaceRecognizer.exe: live tracker, labeling tool, Settings), the journal's first sensor source; a copy of its own repository, kept in step with `git subtree pull` |
+| `docs/` | the design and plan |
+| `tools/`, `tests/` | the fusion demo and tests |
+
+The face recognizer still works on its own: see [facial-recognition/README.md](facial-recognition/README.md) and
+[facial-recognition/face-recognizer/README.md](facial-recognition/face-recognizer/README.md).

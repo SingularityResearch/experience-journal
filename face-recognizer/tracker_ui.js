@@ -933,9 +933,13 @@ function drawMesh(m, col, lw) {
     const p = groups[g];
     p.moveTo(m[a], m[a + 1]); p.lineTo(m[b], m[b + 1]); p.lineTo(m[c], m[c + 1]); p.closePath();
   }
+  // Mesh strength (Light / Normal / Strong) scales the shading and the lines. Normal was made stronger on
+  // 2026-11-09: at 55% and under a pixel wide the lines vanished on some screens (seen on a 1280x720 camera).
+  const k = Math.max(0.3, Math.min(2, +$("optMeshStrength").value || 1));
   ctx.fillStyle = "#08130f";
-  for (let g = 1; g < MESH_SHADES; g++) { ctx.globalAlpha = base * 0.45 * g / (MESH_SHADES - 1); ctx.fill(groups[g]); }
-  ctx.globalAlpha = base * 0.55; ctx.strokeStyle = col; ctx.lineWidth = Math.max(0.6, lw * 0.3);
+  for (let g = 1; g < MESH_SHADES; g++) { ctx.globalAlpha = Math.min(1, base * 0.5 * k * g / (MESH_SHADES - 1)); ctx.fill(groups[g]); }
+  ctx.globalAlpha = Math.min(1, base * 0.8 * k); ctx.strokeStyle = col;
+  ctx.lineWidth = Math.max(1, canvas.width / 900) * Math.max(0.75, k);
   ctx.beginPath();
   for (let k = 0; k < meshTris.length; k += 3) {
     const a = meshTris[k] * 3, b = meshTris[k + 1] * 3, c = meshTris[k + 2] * 3;
@@ -1049,7 +1053,7 @@ function remember(k, v) { try { localStorage.setItem("ft-" + k, v); } catch {} }
 function recall(k) { try { return localStorage.getItem("ft-" + k); } catch { return null; } }
 // The other options are remembered between visits too (the camera's mirror view follows the source instead)
 const KEEP = ["optPoints", "optTrail", "optUnknown", "optBlur", "optExpr", "optCalib", "optEvidence", "optVoice", "optPulse",
-              "optTalkGate", "optState", "optPose", "optHandGate", "optSmooth", "optThresh",
+              "optTalkGate", "optState", "optPose", "optHandGate", "optSmooth", "optThresh", "optMeshStrength",
               "optAlertArrive", "optAlertLeave", "optAlertUnusual", "optArriveGap", "optLeaveGap", "optUnknownStay",
               "optUnusualZ", "optUnusualFor", "optUnusualRepeat", "optDetailsAfter", "optBannerFor"];
 for (const id of KEEP) {
@@ -1068,7 +1072,7 @@ for (const id of ["alertWho", "optAlertUnknown"]) $(id).addEventListener("change
   SettingsBridge.init("track", [
     c("camSelect", "Face tracking: camera", { noReset: true }),
     c("optMirror", D, { hint: "Turned on for the webcam and off for video files when the source starts." }),
-    c("optPoints", D), c("optMesh", D), c("optTrail", D), c("optUnknown", D), c("optBlur", D),
+    c("optPoints", D), c("optMesh", D), c("optMeshStrength", D), c("optTrail", D), c("optUnknown", D), c("optBlur", D),
     c("optSmooth", D, { hint: "How much the boxes are smoothed between frames." }),
     c("optExpr", E), c("optCalib", E, { hint: $("exprHint").textContent }), c("optEvidence", E),
     c("optVoice", E), c("optPulse", E), c("optPose", E),

@@ -31,3 +31,8 @@ test("each page loads its scripts, in order, and each is served and packed into 
   const bat = read("build_app.bat");
   for (const f of [...SCRIPTS, "tracker_ui.html", "label_ui.html", "app_ui.html"]) assert.ok(bat.includes(`%~dp0${f};.`), `${f} not packed`);
 });
+
+test("hidden overlays really hide (a display rule would otherwise override the hidden attribute)", () => {
+  for (const f of ["app_ui.html", "tracker_ui.html", "label_ui.html"])
+    assert.match(read(f), /\[hidden\] \{ display: none !important; \}/, f);
+});

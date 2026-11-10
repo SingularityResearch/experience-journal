@@ -385,7 +385,7 @@ Databases from before per-face labels are upgraded automatically the first time 
 From `face-recognizer\`, with the Python 3.12 above and `python -m pip install -r requirements-dev.txt` once:
 
 ```
-node --test tests              # the browser code, and that every page script parses and is served
+node --test tests/*.test.js           # the browser code, and that every page script parses and is served
 python -m ruff check .         # Python checker (ruff.toml)
 python -m pytest tests -q      # Python tests: no models, camera or network needed; never touch your data
 ```

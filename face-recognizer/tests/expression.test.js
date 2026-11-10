@@ -1,4 +1,4 @@
-// Tests for expression.js.  Run from face-recognizer\:  node --test tests
+// Tests for expression.js.  Run from face-recognizer\:  node --test tests/*.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const X = require("../expression.js");

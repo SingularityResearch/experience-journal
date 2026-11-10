@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: "22"
       - name: Browser code tests (expression.js, signals.js, settings_bridge.js) and page scripts
-        run: node --test tests
+        run: node --test tests/*.test.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

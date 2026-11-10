@@ -42,7 +42,7 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     Its **Collect faces** option saves webcam snapshots + the tracker's verdict to `%APPDATA%\FaceLabels\webcam\`
     (`face_id.WEBCAM`); `label_tool.py` imports them by itself and shows the verdict as a clue.
   - `expression.js` — expression voting, state model, confidence flags, evidence, per-person usual look (browser;
-    served by `tracker.py`). Tests: `node --test tests` from `face-recognizer\`.
+    served by `tracker.py`). Tests: `node --test tests/*.test.js` from `face-recognizer\`.
   - `signals.js` — motion, talking, blinks, gaze, smile timing, webcam pulse, body posture, microphone voice features,
     each person's normal for every signal (`Baselines`, alone and in company),
     feeling-report summaries, fitted valence/arousal (browser; served by `tracker.py`; tests in `tests/`).
@@ -107,7 +107,7 @@ Use the Python 3.12 the .bat files pick (`%LOCALAPPDATA%\Programs\Python\Python3
 
 ```
 cd face-recognizer
-node --test tests                                   # browser code and page scripts
+node --test tests/*.test.js                                # browser code and page scripts
 set PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe
 %PY% -m ruff check .                                 # ruff.toml; pyflakes rules plus likely bugs
 %PY% -m pytest tests -q                              # Python tests (requirements-dev.txt)

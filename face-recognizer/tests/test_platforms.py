@@ -48,3 +48,14 @@ def test_the_window_is_tried_in_a_child_process_on_linux_only(monkeypatch):
     monkeypatch.setattr(app.sys, "platform", "darwin")
     n = len(ran)
     assert app.window_works() is True and len(ran) == n      # macOS and Windows: not tried, always their web view
+
+
+def test_the_linux_build_leaves_graphics_libraries_to_the_system(tmp_path):
+    import build_exe
+    names = ["libgbm.so.1", "libX11.so.6", "libGLX_mesa.so.0", "libwayland-client.so.0",      # the system's own
+             "libdrm-b0291a67.so.2.4.0", "libX11-xcb-b482bfde.so.1.0.0", "libQt6Core.so.6", "libglib-2.0.so.0"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"")
+    gone = build_exe.drop_system_libs(tmp_path)
+    assert sorted(gone) == sorted(names[:4])
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(names[4:])   # private copies and Qt stay

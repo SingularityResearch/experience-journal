@@ -62,10 +62,13 @@ def command(platform=sys.platform):
 
 
 # Linux: graphics libraries that must be the user's own, matching their Mesa and GPU drivers. PyInstaller copies the
-# build machine's (seen: libgbm, libdrm, libX11), and then Qt's web view can't start OpenGL ("Could not initialize
-# GLX", 2026-11-09 on Ubuntu 24.04). Every desktop has them (README: what a minimal install needs).
-LINUX_SYSTEM_LIBS = ("libgbm.so", "libdrm", "libX11.so", "libX11-xcb.so", "libxcb.so", "libGL.so", "libGLX", "libEGL",
-                     "libGLdispatch", "libOpenGL", "libwayland-", "libvulkan")
+# build machine's (seen: libgbm.so.1, libX11.so.6), and then Qt's web view can't start OpenGL ("Could not initialize
+# GLX", 2026-11-09 on Ubuntu 24.04). Every desktop has them (README: what a minimal install needs). Only the system's
+# own names: a copy renamed with a hash (libdrm-b0291a67.so...) is private to the Python package it came with, which
+# loads it by that name.
+LINUX_SYSTEM_LIBS = ("libgbm.so", "libdrm.so", "libX11.so", "libX11-xcb.so", "libxcb.so", "libGL.so", "libGLX.so",
+                     "libGLX_", "libEGL.so", "libEGL_", "libGLdispatch.so", "libOpenGL.so", "libwayland-client.so",
+                     "libwayland-server.so", "libwayland-egl.so", "libwayland-cursor.so", "libvulkan.so")
 
 
 def drop_system_libs(internal):

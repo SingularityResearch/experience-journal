@@ -50,7 +50,7 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
   - `signals.js` — motion, talking, blinks, gaze, smile timing, webcam pulse, body posture, microphone voice features,
     each person's normal for every signal (`Baselines`, alone and in company),
     feeling-report summaries, fitted valence/arousal (browser; served by `tracker.py`; tests in `tests/`).
-  - `app.py` / `build_app.bat` → `FaceRecognizer.exe` — one window (pywebview, WebView2) with Face tracking,
+  - `app.py` / `build_app.bat` → `FaceRecognizer.exe` (ports 8764-8766, or `FACE_PORTS`=n for n to n+2: a second copy) — one window (pywebview, WebView2) with Face tracking,
     Labeling and Settings tabs; starts both servers in one process (`tracker.bind/attach`, `label_tool.attach`), each
     still on its own port and page. The tab page itself (`app_ui.html` + `app_ui.js`, `{{VERSION}}` filled in) is
     served on `127.0.0.1:8764` (`/status`, `/update`, `/open-release`, `/paths`, `/open`). PyInstaller one-file build; uses

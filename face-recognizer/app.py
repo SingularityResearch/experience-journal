@@ -28,8 +28,21 @@ REPO = "SingularityResearch/facial-recognition"
 HOME = paths.HOME                                  # %APPDATA%\FaceLabels: private, outside the project
 
 HERE = paths.HERE                                  # the page files (inside the .exe when built)
+
+
+def ports(env=os.environ):
+    """(tab page, labeling tool, tracker) ports: 8764, 8765, 8766, or from FACE_PORTS=<n> (n, n+1, n+2), so a second
+    copy with other folders (FACE_ROOT, FACE_HOME: a test build, say) runs beside the usual one."""
+    raw = (env.get("FACE_PORTS") or "").strip()
+    base = int(raw) if raw.isdigit() else 8764
+    if not 1024 <= base <= 65000:
+        raise SystemExit(f"FACE_PORTS must be between 1024 and 65000, not {raw}")
+    return base, base + 1, base + 2
+
+
 # Each program runs on the first free port from its own (up to PORT_TRIES), or a copy already running there is used
-LABEL_PORT, TRACK_PORT, PORT_TRIES = 8765, 8766, 10
+SHELL_PORT, LABEL_PORT, TRACK_PORT = ports()
+PORT_TRIES = 10
 TOOL_PORTS = range(LABEL_PORT, TRACK_PORT + PORT_TRIES)     # every port the two programs' pages can be on
 
 # The tab page: app_ui.html (layout and style) and app_ui.js (tabs, status, Settings tab)
@@ -169,7 +182,7 @@ def shell_server():
     """The tab page itself, on 127.0.0.1 (an http://127.0.0.1 page counts as secure, which the camera
     needs; so must the page around the tracker's frame)."""
     try:
-        srv = bind(8764)                            # fixed, so the page's remembered tab survives restarts
+        srv = bind(SHELL_PORT)                      # fixed, so the page's remembered tab survives restarts
     except OSError:
         srv = bind(0)                               # taken (a second copy?): any free port
     srv.RequestHandlerClass = shell_handler()

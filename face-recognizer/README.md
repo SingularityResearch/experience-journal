@@ -380,7 +380,7 @@ All of `data/` stays on this computer: it's in `.gitignore` and not in the relea
 | Photo folders added | `data/settings.json` |
 | Web search keys | `%APPDATA%\FaceLabels\google_vision_key.txt`, `aws_rekognition.json` |
 | Describe photo: describer, server, model, API key | `%APPDATA%\FaceLabels\describe.json` |
-| Environment variables (optional) | `FACE_DEVICE` (auto, gpu, npu, cpu), `FACE_MODEL` (recognition model), `FACE_LLM_URL` (default describe server), `GOOGLE_VISION_API_KEY`, `FACE_ROOT` (another folder with `models\` and `data\`), `FACE_HOME` (another folder instead of `%APPDATA%\FaceLabels`) |
+| Environment variables (optional) | `FACE_DEVICE` (auto, gpu, npu, cpu), `FACE_MODEL` (recognition model), `FACE_LLM_URL` (default describe server), `GOOGLE_VISION_API_KEY`, `FACE_ROOT` (another folder with `models\` and `data\`), `FACE_HOME` (another folder instead of `%APPDATA%\FaceLabels`), `FACE_PORTS` (the app window's ports, n to n+2 instead of 8764-8766, so a second copy with other folders runs beside the usual one) |
 
 Databases from before per-face labels are upgraded automatically the first time Face Labels starts (or with `python face_id.py migrate "<photo folder>"`). The old group files are moved to `data/backups/legacy-<date>/`.
 

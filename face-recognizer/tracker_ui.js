@@ -64,9 +64,14 @@ function alertNames() { return new Set($("alertWho").value.split(",").map(s => s
 // An alert: a banner on the video (it stays 30 s, or until dismissed), the bell rings, a sound, a Windows
 // notification if allowed, and it's kept in the alert inbox (alerts.py) until you acknowledge or archive it. In the
 // app window the tab bar's bell shows it too, whichever tab is open (app_ui.js).
+// In the app window its tab bar has the bell and the banner (app_ui.js), over every tab: this page then shows no
+// bell or banner of its own, so an alert shows once. Opened on its own (recognize.bat), the page shows both.
+const IN_APP = window.parent !== window;
+if (IN_APP) $("bellBtn").hidden = true;
 async function alertMe(text, kind = "arrived", name = "", track = null) {
   let el = $("toast");
-  if (!el) {
+  if (IN_APP) el = { hidden: true, firstChild: {} };       // the app window's banner shows it instead
+  else if (!el) {
     el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "alert");
     const msg = document.createElement("span"), view = document.createElement("button"), ok = document.createElement("button");
     view.textContent = "View alerts"; ok.textContent = "Dismiss"; ok.setAttribute("aria-label", "Dismiss this banner");
@@ -77,7 +82,7 @@ async function alertMe(text, kind = "arrived", name = "", track = null) {
   el.firstChild.textContent = text; el.hidden = false;
   clearTimeout(alertMe.timer);
   if (sec("optBannerFor")) alertMe.timer = setTimeout(() => { el.hidden = true; }, sec("optBannerFor"));
-  $("bellBtn").classList.remove("ring"); void $("bellBtn").offsetWidth; $("bellBtn").classList.add("ring");
+  if (!IN_APP) { $("bellBtn").classList.remove("ring"); void $("bellBtn").offsetWidth; $("bellBtn").classList.add("ring"); }
   if ($("optAlertSound").checked) beep();
   try { if (window.Notification && Notification.permission === "granted") new Notification("Face tracker", { body: text, silent: true }); } catch {}
   let details = null;

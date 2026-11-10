@@ -61,6 +61,23 @@ def command(platform=sys.platform):
     return cmd + ["app.py"]
 
 
+# Linux: graphics libraries that must be the user's own, matching their Mesa and GPU drivers. PyInstaller copies the
+# build machine's (seen: libgbm, libdrm, libX11), and then Qt's web view can't start OpenGL ("Could not initialize
+# GLX", 2026-11-09 on Ubuntu 24.04). Every desktop has them (README: what a minimal install needs).
+LINUX_SYSTEM_LIBS = ("libgbm.so", "libdrm", "libX11.so", "libX11-xcb.so", "libxcb.so", "libGL.so", "libGLX", "libEGL",
+                     "libGLdispatch", "libOpenGL", "libwayland-", "libvulkan")
+
+
+def drop_system_libs(internal):
+    """Remove the copies of LINUX_SYSTEM_LIBS from a built Linux app's _internal folder. Returns their names."""
+    gone = []
+    for f in sorted(Path(internal).iterdir()):
+        if f.is_file() and f.name.startswith(LINUX_SYSTEM_LIBS):
+            f.unlink()
+            gone.append(f.name)
+    return gone
+
+
 def finish_macos_app(app, ver):
     """What macOS needs in the app's Info.plist: why it asks for the camera and microphone (without these the
     system refuses them), the oldest macOS it runs on, and its version. Signing comes after (CI)."""
@@ -89,6 +106,8 @@ def main():
             finish_macos_app(out, version())
     else:
         out = dist / "FaceRecognizer"
+        if (out / "_internal").is_dir():
+            print("Left to the system:", ", ".join(drop_system_libs(out / "_internal")) or "nothing")
     if not out.exists():
         sys.exit(f"PyInstaller finished but {out} isn't there")
     if sys.platform == "win32" and not args.no_copy:

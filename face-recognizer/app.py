@@ -7,9 +7,11 @@ window shows both pages, one per tab. The tracker keeps running while the Labeli
 If either is already running from its .bat, that copy is used instead of starting a second one.
 
 Run:  python app.py            (or FaceRecognizer.exe, built with build_app.bat; the app on macOS and Linux)
-      python app.py --browser  (the same tab page in the default web browser instead of a window of its own)
+      python app.py --browser  (the same tab page in the default web browser instead of a window of its own;
+                                FACE_UI=browser does the same)
 Needs pywebview (pip install pywebview). The window is Edge WebView2 on Windows, WebKit on macOS, and GTK or Qt on
-Linux; where none can open (a Linux system without those libraries), the app falls back to the browser by itself.
+Linux; where none can open or draw (a Linux system without those libraries, or without working OpenGL), the app
+falls back to the browser by itself: on Linux it first tries the window in a child process (--probe-window).
 """
 import json
 import os
@@ -19,6 +21,7 @@ import threading
 import time
 import traceback
 import urllib.request
+from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
 import desktop
@@ -311,8 +314,51 @@ def in_browser(shell):
     os._exit(0)
 
 
+PROBE_SECONDS = 25
+
+
+def probe_window():
+    """--probe-window: open a tiny window with a page in it and close it again; exit 0 if the page loaded. Run as a
+    child process by window_works(): where the window toolkit can't draw (Qt's web view without working OpenGL),
+    it aborts the whole process, which Python can't catch."""
+    import webview
+    loaded = []
+    win = webview.create_window(TITLE, html="<p>Starting ...</p>", width=320, height=120)
+    win.events.loaded += lambda: loaded.append(1)
+
+    def close_soon():
+        for _ in range(PROBE_SECONDS * 5):
+            if loaded:
+                break
+            time.sleep(0.2)
+        time.sleep(0.3)
+        win.destroy()
+    webview.start(close_soon)
+    os._exit(0 if loaded else 3)
+
+
+def window_works():
+    """True if the app window can open and show a page here. Only Linux is checked (a child process tries it):
+    Windows and macOS always have their system web view."""
+    if not sys.platform.startswith("linux"):
+        return True
+    import subprocess
+    cmd = [sys.executable, "--probe-window"] if getattr(sys, "frozen", False) else         [sys.executable, str(Path(__file__).resolve()), "--probe-window"]
+    try:
+        r = subprocess.run(cmd, timeout=PROBE_SECONDS + 10, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"The app window didn't start ({e}).")
+        return False
+    if r.returncode != 0:
+        tail = r.stderr.decode("utf-8", "replace").strip().splitlines()[-3:]
+        print(f"The app window can't draw here (exit {r.returncode}): " + " | ".join(tail))
+    return r.returncode == 0
+
+
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
+    if "--probe-window" in args:
+        probe_window()
     HOME.mkdir(parents=True, exist_ok=True)
     if getattr(sys, "frozen", False) or sys.stdout is None:      # no console: keep the messages in a log
         log = open(HOME / "app.log", "a", encoding="utf-8", buffering=1)
@@ -320,7 +366,10 @@ def main(argv=None):
         print(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} {TITLE} starting")
     shell = shell_server()                          # first: the programs started next trust this page to frame them
     run_programs()
-    if "--browser" in args:
+    if "--browser" in args or os.environ.get("FACE_UI") == "browser":
+        in_browser(shell)
+    if not window_works():                          # e.g. Linux without working OpenGL for Qt's web view
+        print("Using the web browser instead of the app window.")
         in_browser(shell)
     try:
         import webview

@@ -27,3 +27,24 @@ def test_attention_never_raises_where_the_window_cant_do_it():
         native = None
     for platform in ("win32", "darwin", "linux"):
         desktop.attention(NoWindow(), platform)          # prints why, doesn't raise
+
+
+def test_the_window_is_tried_in_a_child_process_on_linux_only(monkeypatch):
+    import subprocess
+    import types
+
+    import app
+    ran = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd)
+        return types.SimpleNamespace(returncode=ran_code[0], stderr=b"Could not initialize GLX")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ran_code = [3]                                   # the child aborted or never showed the page
+    monkeypatch.setattr(app.sys, "platform", "linux")
+    assert app.window_works() is False and ran[-1][-1] == "--probe-window"
+    ran_code[0] = 0
+    assert app.window_works() is True
+    monkeypatch.setattr(app.sys, "platform", "darwin")
+    n = len(ran)
+    assert app.window_works() is True and len(ran) == n      # macOS and Windows: not tried, always their web view

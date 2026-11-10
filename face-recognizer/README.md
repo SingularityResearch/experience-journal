@@ -42,6 +42,12 @@ Mac builds) and on **Linux** (built and tested on Ubuntu; x86_64, and ARM from s
   (macOS) or `~/.local/share/FaceRecognizer` (Linux), and what's private to you (keys, alerts, presence log, the
   window's storage, app.log) in `.../FaceLabels` beside it. Run from the code, models and `data` stay in the project
   folder, as on Windows.
+- **Linux system libraries:** a desktop Ubuntu has them all. A minimal install (a server, WSL, a container) needs
+  the graphics and window libraries the app window uses:
+  `sudo apt install libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libgbm1 libwayland-client0 libwayland-server0
+  libwayland-egl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libnss3
+  libxcomposite1 libxdamage1 libxrandr2 libxtst6 libasound2t64 fonts-dejavu-core` (`libasound2` before Ubuntu 24.04).
+  Without working OpenGL the window can't draw; the app notices (it tries the window first) and uses the browser.
 - **In the browser instead:** `./start.sh --browser` (or `FaceRecognizer --browser`) opens the same tabs in your web
   browser. The app does this by itself where no app window can open.
 - **What's different:** recognition runs on the CPU (OpenCV), measured to give the same names as the GPU path.

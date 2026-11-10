@@ -211,6 +211,8 @@
   .lvl-medium { border: 1px solid var(--accent); color: var(--accent); }
   .lvl-low { border: 1px solid var(--line); color: var(--muted); }
   #wserr { color: var(--bad); margin: 0; }
+  #pderr { color: var(--bad); }
+  .btn.danger { color: var(--bad); border-color: var(--bad); font-weight: 600; }
   #wsres { display: flex; flex-direction: column; gap: 8px; }
   #wsres:empty { display: none; }
   #wsres ul { margin: 0; padding-left: 18px; font-size: 13px; max-height: 140px; overflow-y: auto; }
@@ -284,6 +286,28 @@
     <datalist id="peoplelist"></datalist>
     <div class="acts"><button type="button" class="btn" id="rencancel">Cancel</button><button class="btn primary">Rename</button></div>
   </form>
+</div></div>
+
+<div class="modal" id="persondlg"><div class="picker" role="dialog" aria-label="A person's data" style="width:min(520px, calc(100vw - 32px))">
+  <div class="form">
+    <b id="pdtitle">Their data</b>
+    <p>What this tool holds about them, all on this computer: their faces' prints and pictures, their labels and the
+      labeling history, saved Web search answers, photo tags and descriptions that name them, Collect faces pictures,
+      presence log visits, Expression test frames and feeling reports.</p>
+    <b>Export</b>
+    <p>Writes all of it into a new folder inside the one you give: <code>data.json</code>, their face pictures and Collect faces pictures.</p>
+    <div class="acts"><input type="text" id="pdfolder" autocomplete="off" placeholder="E:\Documents\Export" aria-label="Folder to export into" style="flex:1">
+      <button type="button" class="btn" id="pdexport">Export</button></div>
+    <b>Forget</b>
+    <p>Deletes all of it and removes their name everywhere. Their faces stay as Ignored faces without print or picture,
+      so their photos aren't read again. Undo is cleared, and this can't be undone. In the app window the Face tracking
+      tab also forgets their usual look and normal signals; with the tracker open in a browser, use
+      <b>Forget what's learned</b> there.</p>
+    <div class="acts"><input type="text" id="pdconfirm" autocomplete="off" placeholder="Type their name to confirm" aria-label="Type their name to confirm" style="flex:1">
+      <button type="button" class="btn danger" id="pdforget">Forget</button></div>
+    <p id="pderr" role="alert"></p>
+    <div class="acts"><button type="button" class="btn" id="pdclose">Close</button></div>
+  </div>
 </div></div>
 
 <div class="modal" id="keys"><div class="picker" role="dialog" aria-label="Keyboard shortcuts" style="width:min(520px, calc(100vw - 32px))">

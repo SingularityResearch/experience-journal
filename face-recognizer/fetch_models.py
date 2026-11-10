@@ -5,7 +5,9 @@ The models live in the repo through Git LFS. A copy made without Git LFS (Downlo
 files, or git clone without git-lfs) has small placeholder files instead, and FaceRecognizer.exe from
 a GitHub Release comes without models. This downloads the ones the tracker and labeling tool use
 (about 196 MB), checks each file's SHA-256, and puts it in models\. Files already there and correct are
-left alone.
+left alone: a file already there is checked by its SHA-256 too, once, and then remembered as checked (with its size
+and modification time, in models\.verified.json), so a start doesn't read 200 MB again; it's checked again when
+its size or time changes.
 
 Where from: each model from its original publisher when it offers the very same file (checked 2026-11-09:
 byte-identical), else, or when that fails or the file there has changed, from the project's GitHub Release
@@ -91,10 +93,85 @@ def is_placeholder(path):
         return False
 
 
+VERIFIED = ".verified.json"           # in models\: {file: {size, mtime_ns, sha256}} of files whose SHA-256 was checked
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verified():
+    try:
+        v = json.loads((MODELS / VERIFIED).read_text("utf-8"))
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _remember(name, sha):
+    """Note that models\name, as it is now (size and time), has SHA-256 sha."""
+    st = (MODELS / name).stat()
+    v = _verified()
+    v[name] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha256": sha}
+    try:
+        paths.atomic_write(MODELS / VERIFIED, json.dumps(v, indent=1))
+    except OSError:
+        pass                          # read-only folder: checked again next time
+
+
+def is_good(name):
+    """True if models\name is the expected file: right size and SHA-256. The hash is computed only when the file's
+    size or modification time differ from the last check (VERIFIED)."""
+    path = MODELS / name
+    size, sha = FILES[name]
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    if st.st_size != size or is_placeholder(path):
+        return False
+    seen = _verified().get(name) or {}
+    if seen.get("size") == st.st_size and seen.get("mtime_ns") == st.st_mtime_ns and seen.get("sha256") == sha:
+        return True
+    try:
+        got = sha256_of(path)
+    except OSError:
+        return False
+    if got == sha:
+        _remember(name, got)
+    return got == sha
+
+
 def needed():
-    """The model files that are missing, placeholders, or the wrong size."""
-    return [name for name, (size, _) in FILES.items()
-            if not (MODELS / name).exists() or is_placeholder(MODELS / name) or (MODELS / name).stat().st_size != size]
+    """The model files that are missing, placeholders, or not the expected file (size, SHA-256)."""
+    return [name for name in FILES if not is_good(name)]
+
+
+def download_checked(url, dest, size, sha):
+    """Download url to dest (Path) unless dest is already that file, and check it: size in bytes and SHA-256. A file
+    already there that isn't it, or a download that isn't, raises OSError and leaves nothing behind. For the
+    tools that fetch weights to convert (tools/get_wav2small.py, tools/get_adaface.py)."""
+    if dest.exists():
+        if dest.stat().st_size == size and sha256_of(dest) == sha:
+            return dest
+        raise OSError(f"{dest} isn't the expected file (size or SHA-256 differs): delete it to download it again")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".download")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "FaceRecognizer-model-fetch"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as out:
+            while chunk := r.read(1 << 20):
+                out.write(chunk)
+        if tmp.stat().st_size != size or sha256_of(tmp) != sha:
+            raise OSError(f"{url} isn't the expected file (size or SHA-256 differs)")
+        paths.replace_file(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return dest
 
 
 class _RemoteFile(io.RawIOBase):
@@ -204,6 +281,7 @@ def fetch(progress=None):
                 if h.hexdigest() != sha:
                     raise OSError(f"{name} downloaded, but it isn't the expected file (checksum differs)")
                 paths.replace_file(tmp, MODELS / name)
+                _remember(name, sha)
                 done += got
                 break
             except Exception as e:

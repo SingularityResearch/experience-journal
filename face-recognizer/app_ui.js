@@ -35,20 +35,27 @@ async function poll() {                          // each program's URL once it's
   if (!["track", "label"].every(k => document.getElementById("f-" + k).src || errors[k])) setTimeout(poll, 400);
 }
 poll();
-addEventListener("keydown", e => {               // Ctrl+1 / Ctrl+2 / Ctrl+3 switch tabs
+addEventListener("keydown", e => {               // Ctrl+1 / Ctrl+2 / Ctrl+3 switch tabs, Ctrl+4 the alerts
   const t = { "1": "track", "2": "label", "3": "set" }[e.key];
   if (e.ctrlKey && t) { show(t); e.preventDefault(); }
+  if (e.ctrlKey && e.key === "4") { viewAlerts(); e.preventDefault(); }
 });
+let newer = false;                               // a newer release was found: the buttons open its download page
 async function checkUpdate() {
+  if (newer) return fetch("/open-release", { headers: { "X-Face-Tool": "1" } });
   const bs = ["upd", "upd2"].map(id => document.getElementById(id)), say = t => bs.forEach(b => b.textContent = t);
   say("Checking…");
   try {
     const r = await (await fetch("/update", { cache: "no-store", headers: { "X-Face-Tool": "1" } })).json();
     if (r.error) say("Couldn't check");
-    else if (r.newer) { say(`${r.latest} is available: open the download page`); bs.forEach(b => b.onclick = () => fetch("/open-release", { headers: { "X-Face-Tool": "1" } })); }
+    else if (r.newer) { say(`${r.latest} is available: open the download page`); newer = true; }
     else say("Up to date");
   } catch { say("Couldn't check"); }
 }
+// The page's buttons: no inline onclick attributes, so the page's Content-Security-Policy can refuse inline script
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => show(b.dataset.tab)));
+document.querySelectorAll("#upd, #upd2").forEach(b => b.addEventListener("click", checkUpdate));
+document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => openDir(b.dataset.open)));
 
 // ---------------------------------------------------------------- Settings tab
 // The tracker's and the labeling tool's settings live in their own pages (their controls, their browser storage,
@@ -68,6 +75,9 @@ addEventListener("message", e => {
   const m = e.data;
   if (!k || !m) return;
   if (m.fs === "state") { STATE[k] = m.items; drawPrograms(); }
+  if (k === "track" && m.fs === "alerts") alerts(m);
+  // a person forgotten in the labeling tool: the tracker page forgets what it learned about them (its browser storage)
+  if (k === "label" && m.fs === "forgot" && typeof m.name === "string" && m.name) act("track", "forgetPerson", { name: m.name });
   if (m.fs === "result" && waiting[m.rid]) { waiting[m.rid](m); delete waiting[m.rid]; }
 });
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids.filter(x => x != null)); return n; };
@@ -195,6 +205,35 @@ function drawPrograms() {
     }
   }
 }
+// ---------------------------------------------------------------- Alerts
+// The tracker page raises them and keeps the inbox (alerts.py); it tells this page how many are new, and the text of
+// one that just happened. Here: the bell's count on every tab, a banner over whichever tab is open, and the window's
+// title and taskbar button (app.py /attention) so it's seen even when the window is behind others or minimized.
+let unread = 0;
+function alerts(m) {
+  const n = Math.max(0, Math.floor(+m.unread || 0)), b = document.getElementById("bell"), c = document.getElementById("bellN");
+  c.textContent = n; c.hidden = !n; b.classList.toggle("has", n > 0);
+  b.setAttribute("aria-label", n ? `Alerts, ${n} new` : "Alerts");
+  if (typeof m.latest === "string" && m.latest) {
+    document.getElementById("bannerText").textContent = m.latest;
+    document.getElementById("banner").hidden = false;
+    clearTimeout(alerts.timer);                  // how long: the tracker's "Banner stays" setting (0: until dismissed)
+    const ms = Number.isFinite(+m.banner) ? Math.max(0, Math.min(+m.banner, 3600)) * 1000 : 60000;
+    if (ms) alerts.timer = setTimeout(() => { document.getElementById("banner").hidden = true; }, ms);
+    b.classList.remove("ring"); void b.offsetWidth; b.classList.add("ring");
+  }
+  if (n !== unread || m.latest) fetch(`/attention?unread=${n}&flash=${m.latest ? 1 : 0}`, { headers: { "X-Face-Tool": "1" } }).catch(() => {});
+  unread = n;
+}
+function viewAlerts() {
+  document.getElementById("banner").hidden = true;
+  show("track");
+  act("track", "openAlerts", {});
+}
+document.getElementById("bell").addEventListener("click", viewAlerts);
+document.getElementById("bannerView").addEventListener("click", viewAlerts);
+document.getElementById("bannerOk").addEventListener("click", () => { document.getElementById("banner").hidden = true; });
+
 async function openDir(which) { try { await fetch("/open?what=" + which, { headers: { "X-Face-Tool": "1" } }); } catch {} }
 (async () => {
   try { const p = await (await fetch("/paths", { cache: "no-store" })).json();

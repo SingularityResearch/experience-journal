@@ -112,3 +112,37 @@ def test_placeholders_count_as_missing(one_model):
     M.MODELS.mkdir()
     (M.MODELS / "test.onnx").write_bytes(b"version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n")
     assert M.is_placeholder(M.MODELS / "test.onnx") and M.needed() == ["test.onnx"]
+
+
+def test_a_file_of_the_right_size_but_wrong_contents_is_fetched_again(one_model):
+    M.MODELS.mkdir()
+    (M.MODELS / "test.onnx").write_bytes(b"x" * len(PAYLOAD))       # same size, not the model
+    assert M.needed() == ["test.onnx"]
+
+
+def test_a_checked_file_isnt_hashed_again_until_it_changes(one_model, monkeypatch):
+    M.MODELS.mkdir()
+    f = M.MODELS / "test.onnx"
+    f.write_bytes(PAYLOAD)
+    hashed = []
+    real = M.sha256_of
+    monkeypatch.setattr(M, "sha256_of", lambda p: hashed.append(p) or real(p))
+    assert M.needed() == [] and len(hashed) == 1                       # checked once ...
+    assert M.needed() == [] and len(hashed) == 1                       # ... then remembered (size and time)
+    f.write_bytes(b"y" * len(PAYLOAD))                                 # replaced: same size, new time
+    import os
+    os.utime(f, ns=(f.stat().st_atime_ns, f.stat().st_mtime_ns + 10_000_000))
+    assert M.needed() == ["test.onnx"] and len(hashed) == 2
+
+
+def test_download_checked_refuses_a_wrong_file_and_keeps_nothing(one_model, tmp_path):
+    dest = tmp_path / "w" / "model.bin"
+    with pytest.raises(OSError):
+        M.download_checked(f"{one_model}/wrong.onnx", dest, len(PAYLOAD), SHA)
+    assert not dest.exists() and not list(dest.parent.glob("*.download"))
+    assert M.download_checked(f"{one_model}/model.onnx", dest, len(PAYLOAD), SHA) == dest
+    assert dest.read_bytes() == PAYLOAD
+    assert M.download_checked("http://127.0.0.1:9/never-asked", dest, len(PAYLOAD), SHA) == dest   # already there
+    dest.write_bytes(b"z" * len(PAYLOAD))
+    with pytest.raises(OSError):
+        M.download_checked(f"{one_model}/model.onnx", dest, len(PAYLOAD), SHA)

@@ -8,8 +8,12 @@ Uses Google's MediaPipe face detector; all processing runs locally.
 Double-click `index.html` to open it in Chrome or Edge, click **Start camera**, and allow camera access.
 Pick your USB webcam from the **Camera** dropdown if the wrong camera shows.
 
-Needs an internet connection on first load to fetch the detector from
-`cdn.jsdelivr.net` and the model from `storage.googleapis.com`.
+This is the project's original demo, and **it uses the internet**: each time it opens it loads the detector from
+`cdn.jsdelivr.net`, the face model from `storage.googleapis.com` and its fonts from Google Fonts. The video stays in
+the browser; nothing is uploaded. It is not part of the offline Face Recognizer (`../face-recognizer`), which loads
+nothing from the internet. The detector's main file is pinned to MediaPipe 0.10.14 with its SHA-384 (an import map
+`integrity`, so the browser refuses a changed file); the engine files it loads next and the model can't be pinned
+that way.
 
 ## Features
 

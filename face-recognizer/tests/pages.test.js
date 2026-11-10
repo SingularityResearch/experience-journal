@@ -36,3 +36,13 @@ test("hidden overlays really hide (a display rule would otherwise override the h
   for (const f of ["app_ui.html", "tracker_ui.html", "label_ui.html"])
     assert.match(read(f), /\[hidden\] \{ display: none !important; \}/, f);
 });
+
+test("no inline event handlers either (the pages' Content-Security-Policy refuses inline script)", () => {
+  for (const f of ["tracker_ui.html", "label_ui.html", "app_ui.html", ...SCRIPTS])
+    assert.doesNotMatch(read(f), /\son[a-z]+\s*=\s*["']/i, f);
+});
+
+test("the tracker page uses the computer's own fonts, nothing from the internet", () => {
+  assert.doesNotMatch(read("tracker_ui.html"), /fonts\.googleapis|<link[^>]+https?:/);
+  assert.doesNotMatch(read("tracker_ui.js"), /Plex/);
+});

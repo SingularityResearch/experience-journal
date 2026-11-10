@@ -54,18 +54,259 @@ async function loadPeople() {
 // ---------------------------------------------------------------- alerts and presence log
 // A visit is one person's time in view: it starts when they're named (from the averaged prints, after
 // 3 checks, so a passing misread doesn't count) and ends when they've been out of view for VISIT_GAP.
-// Finished visits go to the opt-in presence log. Arrivals of the chosen people raise an alert.
-const VISIT_GAP = 60_000, ARRIVE_GAP = 600_000, UNKNOWN_ALERT = 30_000;
+// Finished visits go to the opt-in presence log. The chosen people's events (arrive, leave, unusual signals) and
+// unknown faces staying raise alerts, each switched on, and timed, in the alert settings.
+const VISIT_GAP = 60_000;
 const visitsOpen = {}, lastLeft = {};       // name -> {start, last} (Date.now ms); name -> when they last left
+const leaving = {}, lastUnusual = {};       // name -> {start, last} of a visit that ended; name -> last unusual alert
+const sec = id => (+$(id).value || 0) * 1000;  // an alert timing setting, in ms
 function alertNames() { return new Set($("alertWho").value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)); }
-function alertMe(text) {
+// An alert: a banner on the video (it stays 30 s, or until dismissed), the bell rings, a sound, a Windows
+// notification if allowed, and it's kept in the alert inbox (alerts.py) until you acknowledge or archive it. In the
+// app window the tab bar's bell shows it too, whichever tab is open (app_ui.js).
+async function alertMe(text, kind = "arrived", name = "", track = null) {
   let el = $("toast");
-  if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "alert"); $("stage").appendChild(el); }
-  el.textContent = text; el.hidden = false;
-  clearTimeout(alertMe.timer); alertMe.timer = setTimeout(() => { el.hidden = true; }, 8000);
+  if (!el) {
+    el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "alert");
+    const msg = document.createElement("span"), view = document.createElement("button"), ok = document.createElement("button");
+    view.textContent = "View alerts"; ok.textContent = "Dismiss"; ok.setAttribute("aria-label", "Dismiss this banner");
+    view.onclick = () => { el.hidden = true; openAlerts(); };
+    ok.onclick = () => { el.hidden = true; };
+    el.append(msg, view, ok); $("stage").appendChild(el);
+  }
+  el.firstChild.textContent = text; el.hidden = false;
+  clearTimeout(alertMe.timer);
+  if (sec("optBannerFor")) alertMe.timer = setTimeout(() => { el.hidden = true; }, sec("optBannerFor"));
+  $("bellBtn").classList.remove("ring"); void $("bellBtn").offsetWidth; $("bellBtn").classList.add("ring");
   if ($("optAlertSound").checked) beep();
   try { if (window.Notification && Notification.permission === "granted") new Notification("Face tracker", { body: text, silent: true }); } catch {}
+  let details = null;
+  try { details = track ? alertDetails(track) : null; } catch (e) { details = { error: String(e.message || e).slice(0, 200) }; }
+  try {
+    const r = await alertApi("/api/alerts", { kind, name, text, t: Date.now(), details });
+    showAlertCounts(r.counts, text);
+    if (!$("alertsPanel").hidden) loadAlerts();
+    // measure again later (optDetailsAfter): pulse, breathing, blink rate and the 30-second averages need time to fill in
+    if (track) setTimeout(async () => {
+      if (!tracks.includes(track) || track.missed) return;
+      try {
+        await alertApi("/api/alerts/details", { id: r.alert.id, which: "later",
+                                                details: { ...alertDetails(track), afterSeconds: sec("optDetailsAfter") / 1000 } });
+        if (!$("alertsPanel").hidden) loadAlerts();
+      } catch {}
+    }, sec("optDetailsAfter"));
+  } catch { showAlertCounts(null, text); }
 }
+
+// What the tracker measured about this face when the alert was raised: numbers and short labels only (no picture,
+// no sound), the same signals the page already computes (signals.js, expression.js), each beside the person's normal.
+function alertDetails(t) {
+  const now = performance.now(), v = voiceFor(t, now), named = t.name && t.name !== "Unknown";
+  const snap = t.fs.snapshot(now, v), sum = t.fs.summary(now, v);
+  const z = named ? baselines.z(t.name, snap, t.ctx) : {};
+  const vsNormal = {};
+  for (const [k, x] of Object.entries(snap)) {
+    const b = named && x != null ? baselines.normal(t.name, k, t.ctx) : null;
+    vsNormal[k] = { now: x, normal: b ? b.m : null, spread: b ? b.sd : null, z: z[k] ?? null };
+  }
+  const shares = {}, last30s = {};
+  for (const [k, x] of Object.entries(sum)) (k.startsWith("p_") ? shares : last30s)[k.replace(/^p_/, "")] = x ?? null;
+  // The evidence view, exactly as the tracker shows it under the face with "Show expression evidence" on (kept
+  // whether or not that's switched on), plus the expression reading behind it as numbers
+  const e = t.expr, line = s => String(s || "").slice(0, 500);
+  const evidence = {
+    expression: line(e ? Expression.evidence(e) : t.xt?.skip ? `no reading: ${t.xt.skip}` : "no reading yet"),
+    signals: line(Signals.evidence(t.fs, now, v, t.talking)),
+    body: line(Signals.bodyEvidence(t.fs, now)),
+    unusual: line(t.snap ? Signals.unusualEvidence(baselines, t.name, t.snap, t.ctx) : ""),
+    devices: line($("devices")?.textContent.replace(/\s+/g, " ").trim()),
+  };
+  const va = e ? (e.vaFit || e.va) : null;
+  const reading = e ? {
+    label: e.label, state: e.state, share: e.share, lead: e.lead, votes: e.votes, calibratedConfidence: e.cal ?? null,
+    valence: va ? va[0] : null, arousal: va ? va[1] : null, valenceArousalFrom: e.vaFit ? "your fitted model" : "textbook placements",
+    stateModelSays: e.belief ? e.belief.label : null, stateModelShare: e.belief ? e.belief.p : null,
+    flags: (e.flags || []).join(", ") || null, usualLookLearned: e.learning ?? null,
+  } : null;
+  const latest = t.xt?.votes?.length ? t.xt.votes[t.xt.votes.length - 1].probs : null;
+  const asLabels = arr => arr && expressions ? Object.fromEntries(expressions.map((l, i) => [l, arr[i] ?? null])) : null;
+  let usual = null;
+  try { usual = named && usualLooks.usual(t.name); } catch {}
+  return {
+    evidence,
+    expressionReading: reading,
+    expressionCues: e?.cues || null,
+    latestFrameScores: asLabels(latest),
+    usualLook: asLabels(usual || null),
+    recognition: { similarity: t.sim ?? null, faceQuality: t.quality ?? null, faceWidthPx: Math.round(t.tw || t.w || 0),
+                   namedFromAveragedPrints: !!t.byAverage, setting: t.ctx || null,
+                   facesInView: tracks.filter(x => !x.missed).length },
+    expression: t.expr ? { reading: Expression.text(t.expr), state: t.expr.state, label: t.expr.label,
+                           evidence: Expression.evidence(t.expr).slice(0, 200) }
+                       : { reading: t.xt?.skip ? `no reading: ${t.xt.skip}` : "no reading yet" },
+    expressionShares30s: shares,
+    vsNormal,
+    last30s,
+    sensors: { camera: !!running, microphone: !!voice, voiceUsedForThisFace: !!v, faceShapeCues: !!(cuesOn && needCues()),
+               bodyPosture: $("optPose").checked, normalLearned: named ? baselines.progress(t.name) : null },
+  };
+}
+
+// ---------------------------------------------------------------- the alert inbox
+let alertView = "new", alertCounts = { new: 0, ack: 0, archived: 0 };
+async function alertApi(path, body) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store" }
+    : { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "X-Face-Tool": "1" } });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+// The bell's count, and the app window's tab bar told (latest: the text of an alert that just happened)
+function showAlertCounts(c, latest = null) {
+  if (c) alertCounts = c;
+  const n = alertCounts.new || 0;
+  $("bellCount").textContent = n; $("bellCount").hidden = !n;
+  $("bellBtn").classList.toggle("has", n > 0);
+  $("bellBtn").setAttribute("aria-label", n ? `Alerts, ${n} new` : "Alerts");
+  for (const s of ["new", "ack", "archived"]) $("cnt-" + s).textContent = alertCounts[s] ? `(${alertCounts[s]})` : "";
+  SettingsBridge.notify({ fs: "alerts", unread: n, latest, banner: +$("optBannerFor").value });
+}
+async function loadAlerts() {
+  try {
+    const r = await alertApi("/api/alerts");
+    showAlertCounts(r.counts);
+    renderAlerts(r.alerts);
+  } catch (e) { $("alertItems").innerHTML = `<li class="none">Couldn't read the alerts: ${esc(e.message)}</li>`; }
+}
+const BULK = { new: ["Acknowledge all", "ack"], ack: ["Archive all", "archived"], archived: ["Delete all archived", "delete"] };
+const ROW_ACTS = { new: [["Acknowledge", "ack"], ["Archive", "archived"]], ack: [["Archive", "archived"], ["Mark new", "new"]],
+                   archived: [["Restore", "ack"], ["Delete", "delete"]] };
+// ---- an alert's details: what was measured, laid out as tables
+const SIGNAL_NAMES = { head: "Head height", neck: "Neck angle", tilt: "Shoulder tilt", bodyMotion: "Body movement",
+  motion: "Face movement", smile: "Smile", jaw: "Jaw open", blinkRate: "Blink rate", gazeAway: "Looking away",
+  pitch: "Voice pitch", pitchSd: "Pitch variation", loudness: "Loudness", speechRate: "Speaking rate",
+  voiceArousal: "Voice arousal", voiceValence: "Voice valence", voiceDominance: "Voice dominance", pulse: "Pulse",
+  breathing: "Breathing", cheek: "Cheek raise", frown: "Frown", browDown: "Brows down", browInnerUp: "Inner brows up",
+  eyeWide: "Eyes wide", approach: "Coming closer", talking: "Talking", smileAsym: "Smile asymmetry",
+  speaking: "Voiced share", headHeight: "Head height", shoulderTilt: "Shoulder tilt", handOnFace: "Hand on face",
+  armsCrossed: "Arms crossed", similarity: "Match to their face prints", faceQuality: "Face picture quality",
+  faceWidthPx: "Face size", namedFromAveragedPrints: "Named from averaged prints", setting: "Alone or with others",
+  facesInView: "Faces in view", camera: "Camera", microphone: "Microphone", voiceUsedForThisFace: "Voice counted for this face",
+  faceShapeCues: "Face-shape cues", bodyPosture: "Body posture", normalLearned: "Their normal learned",
+  reading: "Reading", state: "State", label: "Label", evidence: "Evidence" };
+const UNITS = { pulse: " bpm", breathing: " /min", blinkRate: " /min", pitch: " Hz", loudness: " dB", faceWidthPx: " px",
+  speechRate: " /s" };
+const SHARES = new Set(["gazeAway", "talking", "speaking", "handOnFace", "armsCrossed", "similarity", "faceQuality",
+  "normalLearned", "share", "lead", "calibratedConfidence", "stateModelShare", "usualLookLearned"]);
+Object.assign(SIGNAL_NAMES, { share: "Share of the votes", lead: "Lead over the next label", votes: "Votes (frames)",
+  calibratedConfidence: "Calibrated confidence", valence: "Valence", arousal: "Arousal", valenceArousalFrom: "Valence/arousal from",
+  stateModelSays: "State model says", stateModelShare: "State model share", flags: "Why it isn't clear",
+  usualLookLearned: "Their usual look learned" });
+const EVIDENCE_NAMES = { expression: "Expression", signals: "Signals", body: "Body", unusual: "Unusual for them",
+  devices: "Running on" };
+function barList(o, cls = "") {
+  const rows = Object.entries(o || {}).filter(([, v]) => v != null).sort((a, b) => b[1] - a[1]);
+  return rows.length ? `<div class="bars ${cls}">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><i style="width:${Math.max(0, Math.min(100, Math.round(v * 100)))}%"></i><b>${Math.round(v * 100)}%</b></div>`).join("")}</div>` : "";
+}
+const GROUPS = [["Face", ["smile", "cheek", "frown", "browDown", "browInnerUp", "eyeWide", "jaw", "smileAsym", "blinkRate", "gazeAway", "talking"]],
+  ["Voice", ["speaking", "loudness", "pitch", "pitchSd", "speechRate", "voiceArousal", "voiceValence", "voiceDominance"]],
+  ["Body", ["motion", "approach", "head", "headHeight", "neck", "tilt", "shoulderTilt", "bodyMotion", "handOnFace", "armsCrossed"]],
+  ["Body rhythms (from the camera)", ["pulse", "breathing"]]];
+function fmtValue(k, x) {
+  if (x == null) return '<span class="na">—</span>';
+  if (typeof x === "boolean") return x ? "yes" : "no";
+  if (typeof x === "string") return esc(x);
+  if (SHARES.has(k)) return `${Math.round(x * 100)}%`;
+  const a = Math.abs(x), s = a >= 100 ? x.toFixed(0) : a >= 10 ? x.toFixed(1) : x.toFixed(2);
+  return esc(s + (UNITS[k] || ""));
+}
+const nameOf = k => SIGNAL_NAMES[k] || k.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
+function kvTable(o) {
+  return `<table class="kv">${Object.entries(o || {}).map(([k, v]) => `<tr><th>${esc(nameOf(k))}</th><td>${fmtValue(k, v)}</td></tr>`).join("")}</table>`;
+}
+function detailSet(d) {
+  if (!d) return "";
+  if (d.error) return `<p class="na">Couldn't read the signals: ${esc(d.error)}</p>`;
+  const shares = Object.entries(d.expressionShares30s || {}).filter(([, v]) => v != null).sort((a, b) => b[1] - a[1]);
+  const vs = Object.entries(d.vsNormal || {}).filter(([, r]) => r && r.now != null);
+  const zcell = z => z == null ? '<span class="na">learning</span>'
+    : `<span class="${Math.abs(z) >= 2 ? "far" : ""}">${z >= 0 ? "+" : ""}${z.toFixed(1)}</span>`;
+  const l30 = d.last30s || {};
+  const ev = Object.entries(d.evidence || {}).filter(([, s]) => s);
+  return `${ev.length ? `<h4>Evidence (as the tracker shows it)</h4><ul class="ev">${ev.map(([k, s]) =>
+      `<li><b>${esc(EVIDENCE_NAMES[k] || k)}</b> ${esc(s)}</li>`).join("")}</ul>` : ""}
+    <h4>Recognition</h4>${kvTable(d.recognition)}
+    <h4>Expression</h4>${kvTable(d.expression)}
+    ${d.expressionReading ? kvTable(d.expressionReading) : ""}
+    ${d.latestFrameScores ? `<h5>Latest frame's scores</h5>${barList(d.latestFrameScores)}` : ""}
+    ${d.usualLook ? `<h5>Their usual look (what the reading is compared with)</h5>${barList(d.usualLook, "dim")}` : ""}
+    ${d.expressionCues ? `<h5>Face-shape cues for this label</h5>${kvTable(d.expressionCues)}` : ""}
+    ${shares.length ? `<div class="bars">${shares.map(([k, v]) => `<div><span>${esc(k)}</span><i style="width:${Math.round(v * 100)}%"></i><b>${Math.round(v * 100)}%</b></div>`).join("")}</div>
+      <p class="hint">Expression shares: the recognizer's scores averaged over the last 30 seconds.</p>` : ""}
+    <h4>Now, against their normal</h4>
+    ${vs.length ? `<table class="vs"><tr><th>Signal</th><th>Now</th><th>Their normal</th><th>Spreads away</th></tr>
+      ${vs.map(([k, r]) => `<tr><td>${esc(nameOf(k))}</td><td>${fmtValue(k, r.now)}</td><td>${r.normal == null ? '<span class="na">—</span>' : fmtValue(k, r.normal)}</td><td>${zcell(r.z)}</td></tr>`).join("")}</table>
+      <p class="hint">"Spreads away": how unusual this is for them (2 or more is marked); "learning" until their normal for it is learned.</p>`
+      : '<p class="na">No signals yet (they need a few seconds of the face in view).</p>'}
+    <h4>Last 30 seconds (averages)</h4>
+    ${GROUPS.map(([g, keys]) => { const have = keys.filter(k => k in l30); return have.length
+      ? `<h5>${esc(g)}</h5><table class="kv">${have.map(k => `<tr><th>${esc(nameOf(k))}</th><td>${fmtValue(k, l30[k])}</td></tr>`).join("")}</table>` : ""; }).join("")}
+    <h4>Sensors</h4>${kvTable(d.sensors)}`;
+}
+function detailsHtml(a) {
+  const d = a.details || {};
+  if (!d.first) return '<p class="na">No details were recorded for this alert (raised before details were kept).</p>';
+  return `<div class="dsets"><section><h3>When the alert was raised</h3>${detailSet(d.first)}</section>
+    <section><h3>${d.later ? `${Math.round(d.later.afterSeconds || 15)} seconds later` : "Later"}</h3>${d.later ? detailSet(d.later) : '<p class="na">Not measured: the face had left the view (or it was a leave alert).</p>'}</section></div>
+    <p class="hint">Numbers only: no picture or sound is kept with an alert.</p>`;
+}
+let alertRows = {}, openDetail = null;
+
+function renderAlerts(all) {
+  const when = ms => new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  alertRows = Object.fromEntries(all.map(a => [a.id, a]));
+  const rows = all.filter(a => a.state === alertView);
+  document.querySelectorAll("[data-astate]").forEach(b => b.setAttribute("aria-selected", b.dataset.astate === alertView));
+  $("alertItems").innerHTML = rows.length
+    ? rows.map(a => `<li><span>${esc(a.text)}</span><span class="when">${esc(when(a.t))} · ${esc({ arrived: "arrived", left: "left", unusual: "unusual signals", unknown: "unknown face" }[a.kind] || a.kind)}</span>
+        <span class="acts"><button data-detail="${esc(a.id)}" aria-expanded="${openDetail === a.id}">Details</button>${ROW_ACTS[alertView].map(([t, s]) => `<button data-id="${esc(a.id)}" data-to="${s}">${t}</button>`).join("")}</span>
+        ${openDetail === a.id ? `<div class="details">${detailsHtml(a)}</div>` : ""}</li>`).join("")
+    : `<li class="none">${{ new: "No new alerts", ack: "Nothing acknowledged", archived: "Nothing archived" }[alertView]}</li>`;
+  const [label] = BULK[alertView];
+  $("alertsBulk").textContent = label; $("alertsBulk").disabled = !rows.length;
+}
+async function setAlerts(body) {
+  try { showAlertCounts((await alertApi("/api/alerts/state", body)).counts); } catch (e) { setStatus(`Alerts: ${e.message}`, "err"); }
+  loadAlerts();
+}
+function openAlerts(view) {
+  if (view) alertView = view;
+  else if (!alertCounts.new && $("alertsPanel").hidden) alertView = alertCounts.ack ? "ack" : "new";
+  $("alertsPanel").hidden = false; $("bellBtn").setAttribute("aria-expanded", "true");
+  try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
+  loadAlerts();
+  return { message: "Alerts shown on the Face tracking tab" };
+}
+function closeAlerts() { $("alertsPanel").hidden = true; $("bellBtn").setAttribute("aria-expanded", "false"); $("bellBtn").focus(); }
+$("bellBtn").onclick = () => ($("alertsPanel").hidden ? openAlerts() : closeAlerts());
+$("alertsClose").onclick = closeAlerts;
+document.querySelectorAll("[data-astate]").forEach(b => b.addEventListener("click", () => { alertView = b.dataset.astate; loadAlerts(); }));
+$("alertItems").addEventListener("click", e => {
+  const d = e.target.closest("button[data-detail]");
+  if (d) {
+    openDetail = openDetail === d.dataset.detail ? null : d.dataset.detail;
+    $("alertsPanel").classList.toggle("wide", !!openDetail);        // room for the two sets side by side
+    renderAlerts(Object.values(alertRows).sort((a, b) => b.t - a.t));
+    return;
+  }
+  const b = e.target.closest("button[data-id]");
+  if (b && (b.dataset.to !== "delete" || confirm("Delete this alert for good?"))) setAlerts({ ids: [b.dataset.id], state: b.dataset.to });
+});
+$("alertsBulk").onclick = () => {
+  const [label, to] = BULK[alertView];
+  if (to !== "delete" || confirm(`${label}? This can't be undone.`)) setAlerts({ where: alertView, state: to });
+};
+addEventListener("keydown", e => { if (e.key === "Escape" && !$("alertsPanel").hidden) closeAlerts(); });
 function beep() {
   try {
     const ac = beep.ac ||= new AudioContext(), t = ac.currentTime;
@@ -77,29 +318,55 @@ function beep() {
     }
   } catch {}
 }
+const hm = ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 function trackPresence() {
   const now = Date.now(), want = alertNames();
   for (const t of tracks) {
     if (t.missed || !t.byAverage) continue;
     if (t.name === "Unknown") {
       t.seenSince ||= now;
-      if ($("optAlertUnknown").checked && !t.unknownAlerted && now - t.seenSince >= UNKNOWN_ALERT) {
-        t.unknownAlerted = true; alertMe("An unknown face has been in view for 30 seconds");
+      const stay = sec("optUnknownStay");
+      if ($("optAlertUnknown").checked && !t.unknownAlerted && now - t.seenSince >= stay) {
+        t.unknownAlerted = true; alertMe(`An unknown face has been in view for ${Math.round(stay / 1000)} seconds`, "unknown", "", t);
       }
       continue;
     }
     if ((t.prints?.length || 0) < 3) continue;
+    const chosen = want.has(t.name.toLowerCase());
+    if (chosen) checkUnusual(t, now);
+    delete leaving[t.name];                  // back in view: not leaving after all
     const v = visitsOpen[t.name];
     if (v) { v.last = now; continue; }
     visitsOpen[t.name] = { start: now, last: now };
     const away = now - (lastLeft[t.name] ?? -Infinity);
-    if (want.has(t.name.toLowerCase()) && away >= ARRIVE_GAP) alertMe(`${t.name} arrived · ${new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    if (chosen && $("optAlertArrive").checked && away >= sec("optArriveGap"))
+      alertMe(`${t.name} arrived · ${hm(now)}`, "arrived", t.name, t);
   }
   for (const [name, v] of Object.entries(visitsOpen)) if (now - v.last > VISIT_GAP) closeVisit(name);
+  // "Leave": out of view for the set time (the visit itself ends after VISIT_GAP)
+  for (const [name, v] of Object.entries(leaving)) {
+    if (now - v.last < sec("optLeaveGap")) continue;
+    delete leaving[name];
+    if ($("optAlertLeave").checked && want.has(name.toLowerCase()))
+      alertMe(`${name} left · last seen ${hm(v.last)} (in view from ${hm(v.start)})`, "left", name, null);
+  }
+}
+// "Unusual": any of a chosen person's signals at least optUnusualZ spreads from their own normal (signals.js
+// Baselines) for optUnusualFor, at most one alert a person per optUnusualRepeat. Thresholds are guesses.
+function checkUnusual(t, now) {
+  if (!$("optAlertUnusual").checked || !t.snap) { t.unusualSince = null; return; }
+  const z = baselines.z(t.name, t.snap, t.ctx), lim = +$("optUnusualZ").value;
+  const far = Object.entries(z).filter(([, v]) => Math.abs(v) >= lim).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (!far.length) { t.unusualSince = null; return; }
+  t.unusualSince ||= now;
+  if (now - t.unusualSince < sec("optUnusualFor") || now - (lastUnusual[t.name] ?? -Infinity) < sec("optUnusualRepeat")) return;
+  lastUnusual[t.name] = now; t.unusualSince = null;
+  const what = far.slice(0, 3).map(([k, v]) => `${nameOf(k).toLowerCase()} ${v > 0 ? "+" : ""}${v.toFixed(1)}`).join(", ");
+  alertMe(`${t.name}: unusual for them · ${what}`, "unusual", t.name, t);
 }
 function closeVisit(name, keepalive = false) {
   const v = visitsOpen[name];
-  delete visitsOpen[name]; lastLeft[name] = v.last;
+  delete visitsOpen[name]; lastLeft[name] = v.last; leaving[name] = v;
   if (!$("optPresence").checked) return;
   fetch("/api/presence", { method: "POST", keepalive, body: JSON.stringify({ name, start: v.start, end: v.last }),
                            headers: { "Content-Type": "application/json", "X-Face-Tool": "1" } }).catch(() => {});
@@ -242,17 +509,20 @@ async function sendLoop() {
   }
 }
 
-// "Collect faces": save the frame just checked for the labeling tool when a face in it has been in view
-// for a few checks, is sharp enough to learn from, and hasn't been saved in the last few seconds.
-// Each saved face carries the tracker's verdict (voted name and match) in frame pixels of the JPEG.
+// "Collect faces": when a face has been in view for a few checks, is sharp enough to learn from, and hasn't
+// been saved in the last few seconds, send the frame just checked with its box and the tracker's verdict (voted
+// name and match), in frame pixels of the JPEG. The tracker keeps only that face with some room around it, never
+// the whole frame, and greys out the other faces in view (`others`) so nobody else is saved.
 function collect(blob, s) {
   const now = performance.now();
   const due = tracks.filter(t => t.matched && t.votes.length >= CAP_SEEN && (t.quality ?? 0) >= qEnroll
                                  && (t.caps || 0) < CAP_MAX && now - (t.capAt || -Infinity) >= CAP_EVERY);
   if (!due.length) return;
   for (const t of due) { t.capAt = now; t.caps = (t.caps || 0) + 1; }
-  const faces = due.map(t => ({ box: [t.tx, t.ty, t.tw, t.th].map(v => +(v * s).toFixed(1)), name: t.name, sim: +t.sim.toFixed(3) }));
-  fetch(`/api/capture?${new URLSearchParams({ faces: JSON.stringify(faces) })}`,
+  const boxOf = t => [t.tx, t.ty, t.tw, t.th].map(v => +(v * s).toFixed(1));
+  const faces = due.map(t => ({ box: boxOf(t), name: t.name, sim: +t.sim.toFixed(3) }));
+  const others = tracks.filter(t => t.matched && !due.includes(t)).slice(0, 20).map(boxOf);
+  fetch(`/api/capture?${new URLSearchParams({ faces: JSON.stringify(faces), others: JSON.stringify(others) })}`,
         { method: "POST", body: blob, headers: { "Content-Type": "image/jpeg", "X-Face-Tool": "1" } })
     .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
     .then(() => { captured += faces.length; $("collectHint").textContent = `${captured} face snapshot${captured === 1 ? "" : "s"} saved this session for the labeling tool.`; })
@@ -596,11 +866,11 @@ function draw() {
     ctx.save();
     if (mirrored) { ctx.translate(cx, 0); ctx.scale(-1, 1); ctx.translate(-cx, 0); }   // keep text readable when mirrored
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = `700 ${size}px "IBM Plex Sans", "Segoe UI", sans-serif`;
+    ctx.font = `700 ${size}px system-ui, "Segoe UI", sans-serif`;
     const name = unknown ? "Unknown" : t.name;
     const pct = unknown ? "" : `${Math.round(t.sim * 100)}%`;
     const nw = ctx.measureText(name).width;
-    ctx.font = `600 ${size * 0.62}px "IBM Plex Mono", Consolas, monospace`;
+    ctx.font = `600 ${size * 0.62}px ui-monospace, Consolas, monospace`;
     const pw = pct ? ctx.measureText(pct).width : 0;
     const xt = exprText(t), xw = xt ? ctx.measureText(xt).width : 0;
     const bw = Math.max(nw, pw, xw) + size * 1.1, bh = size * (1.45 + (pct ? 0.6 : 0) + (xt ? 0.7 : 0));
@@ -608,11 +878,11 @@ function draw() {
     ctx.fillStyle = "rgba(8, 19, 15, 0.62)";
     ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - bw / 2, by, bw, bh, size * 0.35) : ctx.rect(cx - bw / 2, by, bw, bh); ctx.fill();
     ctx.fillStyle = col; ctx.fillRect(cx - bw / 2, by, bw, Math.max(2, size * 0.12));
-    ctx.font = `700 ${size}px "IBM Plex Sans", "Segoe UI", sans-serif`;
+    ctx.font = `700 ${size}px system-ui, "Segoe UI", sans-serif`;
     ctx.fillStyle = "#ffffff"; ctx.fillText(name, cx, by + size * 0.78);
-    if (pct) { ctx.font = `600 ${size * 0.62}px "IBM Plex Mono", Consolas, monospace`; ctx.fillStyle = col; ctx.fillText(pct, cx, by + size * 1.6); }
+    if (pct) { ctx.font = `600 ${size * 0.62}px ui-monospace, Consolas, monospace`; ctx.fillStyle = col; ctx.fillText(pct, cx, by + size * 1.6); }
     if (xt) {   // expression under the name: bright when it departs from the person's usual look, dim otherwise
-      ctx.font = `600 ${size * 0.62}px "IBM Plex Mono", Consolas, monospace`;
+      ctx.font = `600 ${size * 0.62}px ui-monospace, Consolas, monospace`;
       ctx.fillStyle = t.expr.state === "change" || t.expr.state === "plain" ? "#ffffff" : "rgba(255,255,255,0.6)";
       ctx.fillText(xt, cx, by + size * (pct ? 2.3 : 1.6));
     }
@@ -623,7 +893,7 @@ function draw() {
     const size = Math.max(20, canvas.width / 24);
     ctx.save();
     if (mirrored) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
-    ctx.font = `700 ${size}px "IBM Plex Sans", "Segoe UI", sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `700 ${size}px system-ui, "Segoe UI", sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const w = ctx.measureText(test.prompt).width + size * 1.2;
     ctx.fillStyle = test.label ? "rgba(14, 159, 110, 0.85)" : "rgba(8, 19, 15, 0.75)";
     ctx.fillRect((canvas.width - w) / 2, size * 0.5, w, size * 1.6);
@@ -774,7 +1044,9 @@ function remember(k, v) { try { localStorage.setItem("ft-" + k, v); } catch {} }
 function recall(k) { try { return localStorage.getItem("ft-" + k); } catch { return null; } }
 // The other options are remembered between visits too (the camera's mirror view follows the source instead)
 const KEEP = ["optPoints", "optTrail", "optUnknown", "optBlur", "optExpr", "optCalib", "optEvidence", "optVoice", "optPulse",
-              "optTalkGate", "optState", "optPose", "optHandGate", "optSmooth", "optThresh"];
+              "optTalkGate", "optState", "optPose", "optHandGate", "optSmooth", "optThresh",
+              "optAlertArrive", "optAlertLeave", "optAlertUnusual", "optArriveGap", "optLeaveGap", "optUnknownStay",
+              "optUnusualZ", "optUnusualFor", "optUnusualRepeat", "optDetailsAfter", "optBannerFor"];
 for (const id of KEEP) {
   const el = $(id), v = recall("o-" + id);
   if (v !== null) {
@@ -799,8 +1071,8 @@ for (const id of ["alertWho", "optAlertUnknown"]) $(id).addEventListener("change
     c("feelEvery", E, { label: "Ask how I feel (feeling check)" }),
     c("optThresh", R, { hint: "Higher strictness means fewer wrong names but more \"Unknown\". The default is the measured best for the active model." }),
     c("optCollect", R, { hint: $("collectHint").textContent }),
-    { section: A, id: "alertList", label: "Alert me when they arrive", type: "multi",
-      hint: "Pick the people to be told about. \"Arrive\" means first seen after at least 10 minutes out of view. Unknown: a face the recognizer can't name stays 30 seconds. Alerts show on the video and, if you allow it, as Windows notifications.",
+    { section: A, id: "alertList", label: "Alert me about these people", type: "multi",
+      hint: "Pick the people to be told about (their arrive, leave and unusual-signal events, as switched on below). Unknown: a face the recognizer can't name stays the set time.",
       options: () => {
         const known = [...people].sort((a, b) => a.localeCompare(b)), low = new Set(known.map(p => p.toLowerCase()));
         const typed = $("alertWho").value.split(",").map(s => s.trim()).filter(s => s && !low.has(s.toLowerCase()));
@@ -817,13 +1089,30 @@ for (const id of ["alertWho", "optAlertUnknown"]) $(id).addEventListener("change
         $("optAlertUnknown").checked = v.includes("Unknown");
         $("optAlertUnknown").dispatchEvent(new Event("change"));
       } },
-    c("optAlertSound", A),
+    c("optAlertArrive", A), c("optAlertLeave", A), c("optAlertUnusual", A), c("optAlertUnknown", A, { label: "An unknown face stays" }),
+    c("optArriveGap", A), c("optLeaveGap", A), c("optUnknownStay", A), c("optUnusualZ", A), c("optUnusualFor", A),
+    c("optUnusualRepeat", A), c("optDetailsAfter", A), c("optBannerFor", A),
+    c("optAlertSound", A, { hint: $("alertHint").textContent }),
     c("optPresence", A, { hint: "Names and times only, no pictures, in %APPDATA%\\FaceLabels\\presence\\ on this computer." }),
-  ]);
+  ], { forgetPerson, openAlerts });
+}
+// A person forgotten in the labeling tool (its "Their data…"; the app window's tab sends this): what this page
+// learned about them lives only in its browser storage, so the page forgets it itself.
+function forgetPerson({ name } = {}) {
+  if (typeof name !== "string" || !name) throw new Error("No name given");
+  usualLooks.forget(name); baselines.forget(name);
+  const was = $("alertWho").value, left = was.split(",").map(s => s.trim()).filter(s => s && s !== name).join(", ");
+  if (left !== was.split(",").map(s => s.trim()).filter(Boolean).join(", ")) {
+    $("alertWho").value = left;
+    $("alertWho").dispatchEvent(new Event("change"));
+  }
+  renderForget(); renderList(); loadAlerts();               // (the server already dropped their alerts)
+  return { message: `Forgot what this page learned about ${name}` };
 }
 (async () => {
   await listCameras(recall("camera"));
   if (recall("autostart") !== "0") startCamera();
 })();
 loadPeople();
+loadAlerts();                              // the bell's count from the inbox, and the app window's tab bar told
 setInterval(() => { if (!running) loadPeople(); }, 10000);   // pick up names saved in the labeling tool

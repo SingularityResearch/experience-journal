@@ -75,10 +75,17 @@ const SettingsBridge = (() => {
     send();
   });
 
+  // Tell the app window's tab page something this page did (e.g. a person forgotten, so the tracker tab can forget
+  // what its page learned about them). Only to the window around this page, on this computer; else nothing.
+  function notify(msg) {
+    const o = origin || framer();
+    if (parent !== window && o && local(o)) parent.postMessage({ ...msg, app }, o);
+  }
+
   function init(name, list, acts = {}) {
     app = name; items = list; actions = acts;
     const ids = new Set(list.map(x => x.id));
     for (const ev of ["change", "input"]) document.addEventListener(ev, e => { if (ids.has(e.target.id)) changed(); }, true);
   }
-  return { init, control, changed };
+  return { init, control, changed, notify };
 })();

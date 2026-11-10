@@ -32,12 +32,15 @@ PAGE = HERE / "label_ui.html"
 NO_FACE = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112"><rect width="112" height="112" fill="#8884"/>'
            b'<circle cx="56" cy="44" r="20" fill="#8888"/><path d="M18 104c4-24 20-34 38-34s34 10 38 34z" fill="#8888"/>'
            b'<title>No picture of this face on this computer</title></svg>')
+MAX_BODY = 2_000_000                   # bytes in a request (a list of 100,000 face numbers is about 0.7 MB)
 WEB_SAVED = "web_suggestions.json"     # in data/: Web search answers per face, so a face is searched (and paid for) once
+                                       # (persondata.WEB_SAVED: exported and forgotten with a person)
 
 
 def make_handler(db, importer):
     import face_id as F
     import labels as L
+    import persondata
     photo_cache = OrderedDict()            # last few whole photos, already JPEG-encoded
     cache_lock = threading.Lock()          # requests come in on several threads
     no_thumb = set()                       # faces whose picture couldn't be remade (this run)
@@ -136,7 +139,7 @@ def make_handler(db, importer):
                     while window and not importer.stop.is_set():
                         fu = window.pop(0)
                         if nxt < len(todo):
-                            window.append(ex.submit(load, todo[nxt]))
+                            window.append(submit(todo[nxt]))      # with .item, so a failure names its photo
                             nxt += 1
                         try:
                             h, jpg = fu.result()
@@ -173,7 +176,7 @@ def make_handler(db, importer):
         photo when that's here (about 0.5 s each) - in the background, so a list of faces doesn't hold up the
         page (it shows a placeholder until the list is drawn again); wait=True makes it now."""
         t = db.store.thumbs[i]
-        if t or i in no_thumb:
+        if t or i in no_thumb or db.printless(i):    # Ignored faces' pictures are deleted on purpose: not remade
             return t or None
         if wait:
             return remake_one(i)
@@ -184,7 +187,7 @@ def make_handler(db, importer):
         return None
 
     def remake_one(i):
-        if db.store.thumbs[i] or i in no_thumb:
+        if db.store.thumbs[i] or i in no_thumb or db.printless(i):
             return db.store.thumbs[i] or None
         try:
             crop = F.rebuild_crop(db.store, i)
@@ -322,7 +325,7 @@ def make_handler(db, importer):
             if self.refused(write=True):
                 return
             try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
+                body = json.loads(self.body(MAX_BODY, empty=True) or b"{}")
                 if not isinstance(body, dict):
                     raise ValueError("expected an object")
                 path = self.path.split("?", 1)[0]
@@ -363,6 +366,16 @@ def make_handler(db, importer):
                     except OSError as e:
                         raise ValueError(f"Couldn't copy into that folder: {e}") from e
                     return self.send({"ok": True, **n})
+                if path == "/api/person/export":          # everything held about one person, into a folder
+                    try:
+                        r = persondata.export(db, body.get("name"), body.get("folder", ""), web_saved)
+                    except OSError as e:
+                        raise ValueError(f"Couldn't write into that folder: {e}") from e
+                    return self.send({"ok": True, **r})
+                if path == "/api/person/forget":          # ... or forget them everywhere (confirmed on the page)
+                    if body.get("confirm") != body.get("name"):
+                        raise ValueError("Type the person's name to confirm.")
+                    return self.send({"ok": True, "removed": persondata.forget(db, body.get("name"), web_saved, web_lock)})
                 if path == "/api/autoname":
                     return self.send({"ok": True, "named": db.autoname()})
                 if path == "/api/describe/all":          # describe every photo not described yet (background)
@@ -420,8 +433,8 @@ def make_handler(db, importer):
                         return self.send(r)
                     except (OSError, websearch.http.client.HTTPException) as e:
                         return self.send({"error": f"Couldn't reach the search site: {e}"}, code=502)
-            except (ValueError, KeyError, TypeError) as e:
-                return self.send({"error": str(e)}, code=400)
+            except (ValueError, KeyError, TypeError) as e:   # incl. localguard.RequestError (400, or 413)
+                return self.send({"error": str(e)}, code=getattr(e, "code", 400))
             self.send({"error": "not found"}, code=404)
 
     return Handler

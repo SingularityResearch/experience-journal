@@ -8,7 +8,6 @@ downloaded code is executed. Needs PyTorch (installed). Writes models/adaface_ir
 Run:  python tools/get_adaface.py
 """
 import sys
-import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -16,9 +15,16 @@ import torch
 from torch import nn
 
 HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
+import fetch_models  # noqa: E402  (download_checked: pinned file, size and SHA-256)
+
 WEIGHTS = HERE / "models" / "adaface_src" / "model.pt"
 OUT = HERE / "models" / "adaface_ir101_webface12m.onnx"
-URL = "https://huggingface.co/minchul/cvlface_adaface_ir101_webface12m/resolve/main/pretrained_model/model.pt"
+# Pinned: the model repository's commit (2026-11-09, the main branch then) and the file's size and SHA-256 (the
+# Hugging Face API's LFS id for it, and the hash of the copy this project's evaluation used)
+REVISION = "54f602a0737bd1ee4a4e7e9fd089a485f397fefd"
+URL = f"https://huggingface.co/minchul/cvlface_adaface_ir101_webface12m/resolve/{REVISION}/pretrained_model/model.pt"
+SIZE, SHA256 = 261111273, "e312d79222d28027f146ed495e182e48fe0dddf404cdbbdabcccdbdd07cc3758"
 
 
 class Flatten(nn.Module):
@@ -92,9 +98,11 @@ def batchnorm_to_affine(module):
 
 def main():
     if not WEIGHTS.exists():
-        WEIGHTS.parent.mkdir(parents=True, exist_ok=True)
         print("downloading AdaFace IR-101 weights (261 MB)...", flush=True)
-        urllib.request.urlretrieve(URL, WEIGHTS)
+    try:
+        fetch_models.download_checked(URL, WEIGHTS, SIZE, SHA256)    # also checks a copy already there
+    except OSError as e:
+        sys.exit(str(e))
     state = torch.load(WEIGHTS, map_location="cpu", weights_only=True)
     state = {k[4:] if k.startswith("net.") else k: v for k, v in state.items()}
     net = IR101()

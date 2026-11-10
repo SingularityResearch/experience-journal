@@ -18,7 +18,9 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
 ## Layout
 
 - `docs/` — background write-ups (`WHY_LAYERED_EXPRESSION.md`).
-- `face-tracker/index.html` — original standalone MediaPipe tracker; double-click to open.
+- `face-tracker/index.html` — original standalone MediaPipe tracker; double-click to open. It uses the internet (jsDelivr,
+  Google model storage and fonts) and isn't part of the offline tool; its MediaPipe main file is pinned with an
+  import-map `integrity` (SHA-384).
 - `face-recognizer/` — the Python project. All programs share `face-recognizer/data/`:
   - `face_id.py` — core library + CLI (`scan`, `cluster`, `name`, `people`, `recognize`, `reembed`, `migrate`).
   - `paths.py` — `ROOT` (models\ and data\; `FACE_ROOT` overrides), `HOME` (`%APPDATA%\FaceLabels`; `FACE_HOME`
@@ -39,8 +41,10 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     `http://127.0.0.1:8765`.
     The owner calls this "the recognizer".
   - `tracker.py` + `tracker_ui.html` + `tracker_ui.js` / `recognize.bat` — live tracker on `http://127.0.0.1:8766`.
-    Its **Collect faces** option saves webcam snapshots + the tracker's verdict to `%APPDATA%\FaceLabels\webcam\`
-    (`face_id.WEBCAM`); `label_tool.py` imports them by itself and shows the verdict as a clue.
+    Its **Collect faces** option saves each collected face (never the whole frame: the face with `CAPTURE_MARGIN`
+    0.6 face widths around it, the room `face_id.rebuild_crop` re-detects in, other faces greyed out) + the tracker's
+    verdict to `%APPDATA%\FaceLabels\webcam\` (`face_id.WEBCAM`); `label_tool.py` imports them by itself and shows
+    the verdict as a clue.
   - `expression.js` — expression voting, state model, confidence flags, evidence, per-person usual look (browser;
     served by `tracker.py`). Tests: `node --test tests/*.test.js` from `face-recognizer\`.
   - `signals.js` — motion, talking, blinks, gaze, smile timing, webcam pulse, body posture, microphone voice features,
@@ -65,30 +69,50 @@ Expression design review (LM Studio export): [`Real-Time Facial Emotion Recognit
     postMessage; each page lists its own (`SettingsBridge.init` at the end of its script) and applies changes through
     its own controls (`SettingsBridge.control(id, section)`) or its own get/set and actions. Served by both servers.
     Setting types: toggle, range, select, text, multi, info, button, form. The tab owns no settings itself.
-  - `localguard.py` — what the three servers share: request checks (Host, `X-Face-Tool: 1`, Origin), the `Handler`
-    base class (quiet, `send`/`send_json`, `refused`, framing headers, uncaught errors answered with a JSON 500;
-    subclasses define `_get`/`_post`) and `bind` (no port sharing on Windows).
+  - `localguard.py` — what the three servers share: request checks (Host, `Sec-Fetch-Site`, `X-Face-Tool: 1`,
+    Origin), the `Handler` base class (quiet, `send`/`send_json`, `body(limit)`, `refused`, the page headers:
+    Content-Security-Policy `POLICY` plus each server's `policy`, frame-ancestors, CORP, nosniff; uncaught errors
+    answered with a JSON 500; subclasses define `_get`/`_post`) and `bind` (no port sharing on Windows).
+  - `alerts.py` — the tracker's alert inbox (`%APPDATA%\FaceLabels\alerts.json`): add, list, acknowledge / archive /
+    delete, and each alert's measured details (numbers and short text only, checked by `check_details`); routes
+    `/api/alerts`, `/api/alerts/state`, `/api/alerts/details` in tracker.py; the bell and banner in the app window
+    come from the tracker page over the Settings bridge (`fs: "alerts"`), and app.py's `/attention` sets the title
+    and flashes the taskbar button.
+  - `persondata.py` — one person's data: `export` (a folder with `data.json` and their pictures) and `forget`
+    (every place a person's data lives, listed at its top; their faces stay as Ignored places). The labeling tool's
+    person view (**Their data…**, `/api/person/export`, `/api/person/forget`); the tracker page forgets its browser
+    storage itself (`forgetPerson`, sent by the app's tab page after a forget).
   - `setup.bat` — installs Python 3.12 (winget) and `requirements.txt` (pinned versions; OpenCV as
     `opencv-contrib-python` only, which mediapipe needs; setup removes a plain `opencv-python` if one is installed).
     `requirements-build.txt` adds PyInstaller for `build_app.bat`; `requirements-dev.txt` has pytest and ruff.
   - `fetch_models.py` — downloads missing models (or Git LFS placeholders): six from their publishers (OpenCV Zoo on Hugging
     Face, pinned; MediaPipe storage v1; ArcFace's bytes only, by range requests, from InsightFace's `buffalo_l.zip`),
     Wav2Small (and any fallback) from the GitHub Release `models-v1`,
-    with SHA-256 checks; run by `setup.bat` and by the .exe on first start. `face_id.check_downloaded()` stops
+    with SHA-256 checks (also of files already there, remembered by size and time in `models/.verified.json`,
+    not in git); run by `setup.bat` and by the .exe on first start. `download_checked` is the pinned download
+    (URL at a commit, size, SHA-256) that `tools/get_wav2small.py` and `tools/get_adaface.py` use. `face_id.check_downloaded()` stops
     with "Model files weren't downloaded: install Git LFS and run git lfs pull" when it finds placeholders.
   - `models/` (Git LFS) — YuNet (detect), ArcFace R50 (recognize), SFace (fallback), eDifFIQA (quality),
     expression model, AdaFace (evaluated, unused; local only, made by `tools/get_adaface.py`, not in git),
-    `npu/` (static ArcFace + VitisAI config/cache), `face_landmarker.task` (MediaPipe blendshape cues, optional),
+    `npu/` (static ArcFace + VitisAI config/cache), `face_landmarker.task` (MediaPipe blendshape cues, optional;
+    the two `.task` files and `wav2small_src/model.safetensors` are plain git files, not LFS: moving them would
+    rewrite history),
     `wav2small.onnx` (voice arousal/dominance/valence, optional; made by `tools/get_wav2small.py`),
     `pose_landmarker_lite.task` (MediaPipe body posture, optional).
   - `tools/` — `eval_models.py`, `hw_bench.py`, `expr_check.py`, `expr_eval.py`, `get_adaface.py`, `get_wav2small.py`, `import_bench.py`, `websearch_check.py`, `webcam_eval.py` (live naming on confirmed webcam snapshots; measured the
     averaged-print rule the tracker uses via `/api/who`).
   - `tests/` — Node tests (`*.test.js`: `expression.js`, `signals.js`, `settings_bridge.js`, every page script parses
-    and is served and packed) and Python tests (`test_*.py`, pytest: request checks, describe settings and where
-    photos/keys go, Web search keys and caps, the model download against a local server, labeling and undo, the
-    face-picture migration, the empty new-user start, and a tripwire on the measured thresholds). `conftest.py`
+    and is served and packed, no inline handlers, no internet fonts) and Python tests (`test_*.py`, pytest: request
+    checks, the three servers' headers and routes on test servers (`test_servers.py`: CSP, CORP, cross-site
+    refusals, request sizes, Collect faces, presence log, feeling reports, `/api/who`, no page loading from the
+    internet), describe settings and where photos/keys go, Web search keys and caps, the model download against a
+    local server, labeling, Ignore and undo, one person's export and forget (`test_persondata.py`, also Describe
+    all past an unreadable photo), the face-picture migration, the empty new-user start, and a tripwire on the
+    measured thresholds). `conftest.py`
     points `FACE_ROOT`/`FACE_HOME` at a temp folder before anything is imported: no models, no real data.
-  - `.github/workflows/checks.yml` — CI on every push/PR: Node tests, ruff and pytest (no LFS, no models).
+  - `.github/workflows/checks.yml` — CI on every push/PR: Node tests, ruff and pytest (no LFS, no models). Actions are
+    pinned to full commit SHAs, the release in a comment; look new ones up with
+    `git ls-remote https://github.com/actions/<name> refs/tags/<tag>`.
 
 ## Running
 
@@ -130,8 +154,18 @@ Test UI changes in the real app or a test copy, never against the owner's runnin
 - Every endpoint goes through `localguard.refuse_reason` (exact Host and port; POST needs `X-Face-Tool: 1` and its
   own Origin). The `app.py` shell uses it too: its GETs that do something (`/update`, `/open-release`, `/open`) need
   the header.
-- Every answer carries `localguard.page_headers`: `frame-ancestors` lets only the page itself and the app's tab page
-  (`localguard.FRAME_PARENTS`, 8764 or the shell's real port) frame it; the shell page can't be framed at all.
+- Every answer carries `localguard.page_headers`: a Content-Security-Policy with `default-src 'self'` and only what
+  each page uses (`localguard.POLICY`; the tracker adds `blob:` scripts and media for its microphone worklet and Open
+  video, the tab page the programs' ports as `frame-src`; no inline script anywhere, so no `onclick=` attributes);
+  `frame-ancestors` lets only the page itself frame it, plus the app's tab page when `app.py` started the program
+  (`localguard.FRAME_PARENTS` is empty until `app.shell_server` adds its real port; a .bat copy trusts nobody, and
+  the app says so instead of showing it); the shell page can't be framed at all; `Cross-Origin-Resource-Policy:
+  same-origin` and `nosniff`. Pages load nothing from the internet (a test checks every page file).
+- Requests with `Sec-Fetch-Site: cross-site` are refused (another website's page, even as an `<img>`); same-site is
+  the tab page's frames on other 127.0.0.1 ports. Request bodies go through `Handler.body(limit)` (negative or
+  non-numeric `Content-Length` 400, too large 413).
+- In the app window only the tracker this window shows gets the camera and microphone without a prompt
+  (`app.camera_allowed`).
 - Servers bind with `localguard.bind` (no address reuse on Windows, so a second copy fails instead of sharing the
   port) and wrap handlers in `localguard.answer_errors` (an uncaught error still gets a JSON 500).
 - Anything put into `innerHTML` goes through `esc()` (names, paths, descriptions, web results, tags, errors).
@@ -145,6 +179,8 @@ Test UI changes in the real app or a test copy, never against the owner's runnin
   that address); redirects aren't followed; answers are capped (`MAX_ANSWER`, `MAX_TEXT`).
 - Background jobs (imports, possible-face scans, Describe all) start through `Importer.begin` (one at a time, under
   a lock). Shared caches and counters used by request threads need a lock.
+- Every person's data can be exported and forgotten (`persondata.py`): a new place that keeps anything about a person
+  must be added to its list, `export` and `forget`, and to `tests/test_persondata.py`.
 - Open items from the 2026-11-09 review: `PROJECT_CONTEXT.md` section 10.
 
 ## Conventions and constraints
@@ -178,4 +214,8 @@ Test UI changes in the real app or a test copy, never against the owner's runnin
 - Releases: the zip holds `FaceRecognizer.exe` and a new-user `README.txt` only, never `data\`.
 - The presence log (who was in view, when) is opt-in, names and times only, in `%APPDATA%\FaceLabels\presence\`, never `data/`.
 - Webcam faces named automatically don't enter the recognition gallery until confirmed (`LabelDB.gallery`).
+- Ignore deletes the face's print and picture (`LabelDB.forget_faces`, `Store.forget`; Undo restores them from memory
+  in the same session); only its ID, photo and box stay, which keep the photo from being read again. Faces ignored
+  before v1.9 are converted at the labeling tool's start. Code that uses prints must skip `printless` faces.
+- Collect faces never saves whole frames, only each face with room around it and the others greyed out.
 - InsightFace ArcFace and audEERING Wav2Small weights are non-commercial; note this if the project is ever redistributed.

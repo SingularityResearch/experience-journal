@@ -108,7 +108,7 @@ async function render(top) {
       html = `<div class="empty"><b>No photos yet</b><p style="max-width:560px;margin:6px auto">Click <strong>Add photos</strong> and choose a folder
         of your photos or videos. The faces in them are found on this computer and listed under <strong>New faces</strong>; name a few
         faces of each person and the recognizer learns them, then suggests names for the rest. Your photos, faces and names stay on
-        this computer.</p><p><button class="btn primary" onclick="$('#add').click()">Add photos</button></p></div>`;
+        this computer.</p><p><button class="btn primary" id="addfirst">Add photos</button></p></div>`;
     else if (view.v === "suggested") html = viewSuggested(await get(`/api/suggested?low=${low}`));
     else if (view.v === "unknown") html = viewUnknown(await get(`/api/unknown?low=${low}${view.regroup ? "&regroup=1" : ""}`));
     else if (view.v === "possible") html = viewPossible(await get("/api/possiblefaces"));
@@ -123,6 +123,8 @@ async function render(top) {
   wire(main);
   main.scrollTop = scroll;
   pruneSel();
+  const first = $("#addfirst");
+  if (first) first.onclick = () => $("#add").click();
   const scan = $("#scanpossible");
   if (scan) scan.onclick = async () => {
     try { await post("/api/possible/scan", {}); scan.disabled = true; scan.textContent = "Looking… (progress at the top)"; pollImport(); }
@@ -304,7 +306,7 @@ function viewPerson(d) {
     : `${p ? plural(p.usable, "clear face") + " used for recognition" : ""}${autoN ? `, ${autoN} named automatically` : ""}. Faces that look least like ${esc(n)} come first, so mistakes surface at the top.`;
   return `<div class="head">${n !== IGN ? avatar(n).replace("<img", '<img style="width:44px;height:44px;border-radius:50%;object-fit:cover"') : ""}<h2>${esc(label(n))}</h2>
       <span style="color:var(--muted)">${plural(d.faces.length, "face")}</span>
-      ${n !== IGN ? `<button class="btn small" id="rename">Rename or merge</button><button class="btn small" id="photosbtn">Photos…</button>` : ""}</div><p class="lede">${lede}</p>
+      ${n !== IGN ? `<button class="btn small" id="rename">Rename or merge</button><button class="btn small" id="photosbtn">Photos…</button><button class="btn small" id="persondata" title="Export everything held about this person, or forget them">Their data…</button>` : ""}</div><p class="lede">${lede}</p>
     <section class="sec" data-sec="${esc(n)}">${grid(d.faces.map(F3), n)}</section>`;
 }
 
@@ -326,6 +328,7 @@ function wire(root) {
   const rg = root.querySelector("#regroup"); if (rg) rg.onclick = () => { view.regroup = true; render(); };
   const rn = root.querySelector("#rename"); if (rn) rn.onclick = () => openRename(view.name);
   const pb = root.querySelector("#photosbtn"); if (pb) pb.onclick = () => openPhotos(view.name);
+  const pd = root.querySelector("#persondata"); if (pd) pd.onclick = () => openPersonData(view.name);
 }
 function wireTiles(root) {
   root.querySelectorAll(".face").forEach(b => {
@@ -538,6 +541,39 @@ $("#phform").onsubmit = async e => {
     $("#pherr").textContent = "";
     toast(`Copied ${plural(r.copied, "photo")} to ${folder}${r.skipped ? ` (${r.skipped} already there)` : ""}${r.missing ? `; ${r.missing} not on this computer` : ""}`);
   } catch (err) { $("#pherr").textContent = String(err.message || err); }
+};
+
+// A person's data (persondata.py): export everything held about them, or forget them everywhere
+let pdName = "";
+function openPersonData(n) {
+  pdName = n;
+  $("#pdtitle").textContent = `${n}: their data`;
+  $("#pdconfirm").value = ""; $("#pderr").textContent = "";
+  $("#persondlg").classList.add("on");
+}
+$("#pdclose").onclick = () => $("#persondlg").classList.remove("on");
+$("#pdexport").onclick = async () => {
+  const folder = $("#pdfolder").value.trim();
+  if (!folder) return ($("#pderr").textContent = "Type the folder to export into.");
+  $("#pderr").textContent = "Exporting…";
+  try {
+    const r = await post("/api/person/export", { name: pdName, folder });
+    $("#pderr").textContent = "";
+    toast(`Exported ${plural(r.faces, "face")} of ${pdName} to ${r.folder}`);
+  } catch (err) { $("#pderr").textContent = String(err.message || err); }
+};
+$("#pdforget").onclick = async () => {
+  const typed = $("#pdconfirm").value.trim();
+  if (typed !== pdName) return ($("#pderr").textContent = `Type ${pdName} exactly to confirm.`);
+  if (!confirm(`Forget ${pdName} everywhere? This deletes their face prints, pictures and every record naming them, and can't be undone.`)) return;
+  try {
+    const r = await post("/api/person/forget", { name: pdName, confirm: typed });
+    $("#persondlg").classList.remove("on");
+    SettingsBridge.notify({ fs: "forgot", name: pdName });     // the app window's tracker tab: their learned normals
+    view = { v: "suggested" };
+    history.replaceState(null, "", hashOf(view));
+    done(`Forgot ${pdName}: ${plural(r.removed.faces, "face")} kept only as Ignored places, ${plural(r.removed.history, "history line")} removed`);
+  } catch (err) { $("#pderr").textContent = String(err.message || err); }
 };
 
 function openRename(n) {

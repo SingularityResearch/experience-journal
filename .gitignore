@@ -17,10 +17,12 @@ face-recognizer/FaceRecognizer.exe
 face-recognizer/models/adaface_ir101_webface12m.onnx
 face-recognizer/models/adaface_src/
 
-# fetch_models.py partial downloads
+# fetch_models.py partial downloads, and its note of model files already checked (size, time, SHA-256)
 *.download
+face-recognizer/models/.verified.json
 
-# labels.json copies from each labeling-tool start: local safety net only (git history has the rest)
+# labels.json copies from each labeling-tool start: a local safety net only. data/ is never in git, so back it up
+# yourself (covered by the data/ rule below too)
 face-recognizer/data/backups/
 
 # Built-in photo describer (florence.py): 0.8 GB, downloaded on request from Hugging Face

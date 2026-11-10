@@ -14,7 +14,6 @@ Run:  python tools/get_wav2small.py
 import json
 import struct
 import sys
-import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -22,9 +21,16 @@ import torch
 from torch import nn
 
 HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
+import fetch_models  # noqa: E402  (download_checked: pinned file, size and SHA-256)
+
 WEIGHTS = HERE / "models" / "wav2small_src" / "model.safetensors"
 OUT = HERE / "models" / "wav2small.onnx"
-URL = "https://huggingface.co/audeering/wav2small/resolve/main/model.safetensors"
+# Pinned: the model repository's commit (2026-11-09, the main branch then) and the file's size and SHA-256 (the
+# Hugging Face API's LFS id for it, and the hash of the copy this project's wav2small.onnx was made from)
+REVISION = "6ea3fe5be073ba13083bb60d14af2736dc258de9"
+URL = f"https://huggingface.co/audeering/wav2small/resolve/{REVISION}/model.safetensors"
+SIZE, SHA256 = 68716, "86ccef83ce942ff34299a44684e9b69bf37021dd4b69325c0dcb3decb0df2f4d"
 
 
 def read_safetensors(path):
@@ -115,9 +121,11 @@ class Wav2Small(nn.Module):
 
 def main():
     if not WEIGHTS.exists():
-        WEIGHTS.parent.mkdir(parents=True, exist_ok=True)
         print(f"Downloading {URL}")
-        urllib.request.urlretrieve(URL, WEIGHTS)
+    try:
+        fetch_models.download_checked(URL, WEIGHTS, SIZE, SHA256)    # also checks a copy already there
+    except OSError as e:
+        sys.exit(str(e))
     state = {k: v for k, v in read_safetensors(WEIGHTS).items() if not k.endswith("num_batches_tracked")}
     model = Wav2Small().eval()
     missing, unexpected = model.load_state_dict(state, strict=False)

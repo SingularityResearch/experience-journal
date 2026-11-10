@@ -33,9 +33,43 @@ def test_writes_need_the_header_and_own_origin():
         assert why({**ok, "Origin": origin}, write=True) is not None
 
 
-def test_frame_parents_are_only_the_app_window():
-    assert G.FRAME_PARENTS >= {"http://127.0.0.1:8764"}
-    assert all(p.startswith(("http://127.0.0.1:", "http://localhost:")) for p in G.FRAME_PARENTS)
+@pytest.mark.parametrize("site", ["cross-site"])
+def test_requests_from_other_websites_are_refused(site):
+    for write in (False, True):
+        assert why({"Host": "127.0.0.1:8765", "X-Face-Tool": "1", "Sec-Fetch-Site": site}, write) is not None
+
+
+@pytest.mark.parametrize("site", ["same-origin", "same-site", "none", None])
+def test_own_page_tab_page_and_typed_addresses_are_allowed(site):
+    h = {"Host": "127.0.0.1:8765", "X-Face-Tool": "1", **({"Sec-Fetch-Site": site} if site else {})}
+    assert why(h) is None and why(h, write=True) is None
+
+
+def test_no_page_trusts_another_to_frame_it_unless_the_app_started_it(monkeypatch):
+    assert G.FRAME_PARENTS == set()                           # nothing trusted until app.py adds its tab page
+    assert "frame-ancestors 'self'" in G.policy() and "8764" not in G.policy()
+    monkeypatch.setattr(G, "FRAME_PARENTS", {"http://127.0.0.1:8764"})
+    assert G.policy().endswith("frame-ancestors 'self' http://127.0.0.1:8764")
+    assert G.policy("'none'").endswith("frame-ancestors 'none'")
+
+
+def test_policy_extras_replace_the_shared_rule():
+    rules = dict(r.split(" ", 1) for r in G.policy(extra={"script-src": "'self' blob:"}).split("; "))
+    assert rules["script-src"] == "'self' blob:" and rules["default-src"] == "'self'" and rules["object-src"] == "'none'"
+
+
+@pytest.mark.parametrize("length, empty, code", [("-1", False, 400), ("+5", False, 400), ("1e3", False, 400),
+                                                 ("", False, 400), ("0", False, 400), ("100", False, 413),
+                                                 ("99999", False, 413)])
+def test_body_size_refuses_bad_lengths(length, empty, code):
+    with pytest.raises(G.RequestError) as e:
+        G.body_size({"Content-Length": length}, 100, empty)
+    assert e.value.code == code and isinstance(e.value, ValueError)
+
+
+def test_body_size_takes_good_lengths():
+    assert G.body_size({"Content-Length": "99"}, 100) == 99
+    assert G.body_size({}, 100, empty=True) == 0 and G.body_size({"Content-Length": " 7 "}, 100) == 7
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="address reuse only lets two programs share a port on Windows")

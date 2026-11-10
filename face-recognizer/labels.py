@@ -5,7 +5,8 @@ Every face has a permanent ID (its photo's content fingerprint + where the face 
 and its label is stored on the face itself in data/labels.json:
 
   {"<face id>": {"n": "Ann", "by": "me"}, ...}
-    n    the person's name, or "#ignore" (stranger, artwork, not a face: never recognized)
+    n    the person's name, or "#ignore" (stranger, artwork, not a face: never recognized; its face print and
+         picture are deleted, only where it is in its photo is kept: see LabelDB.forget_faces)
     by   "me" (you named it) or "auto" (named automatically because the model was very sure)
     not  names you said this face is NOT, so they are never suggested for it again
     ok   you looked at a "might be mislabeled" warning and kept the name
@@ -74,6 +75,12 @@ class LabelDB:
         self.facts = PhotoFacts(self)    # camera dates and people tags; start() reads them in the background
         if backup:
             self.backup()
+        kept = [i for i in range(self.n) if self.name(i) == IGNORE and not self.store.printless(i)]
+        if kept:                         # Ignored before v1.9, when their prints and pictures were still kept
+            saved = self._backup_before_forgetting()
+            self.forget_faces(kept)
+            log(f"Deleted the face prints and pictures of {len(kept)} ignored faces (only where they are is kept). "
+                f"A copy from before is in {saved}: delete it once you're happy.")
 
     # ----- basics
     @property
@@ -89,7 +96,31 @@ class LabelDB:
 
     def usable(self, i):
         q = self.store.quality[i]
-        return not q < F.Q_ENROLL                # nan = not scored = usable
+        return not q < F.Q_ENROLL and not self.printless(i)     # nan = not scored = usable
+
+    def printless(self, i):
+        """True if face i's print and picture were deleted (Ignored, or a forgotten person's): it can't be
+        scored, grouped or teach the recognizer."""
+        if "gone" not in self._cache:
+            E = self.E()
+            self._cache["gone"] = set(np.flatnonzero(~E.any(1)).tolist()) if self.n else set()
+        return i in self._cache["gone"]
+
+    def forget_faces(self, idx):
+        """Delete the prints and pictures of faces idx (Store.forget) and save. Only where each face is stays
+        (face ID, photo, box): its photo is already in photos.json, so it isn't read again, and a re-saved copy
+        of it still counts as a copy (same_faces). Returns {face ID: (print, picture)} for Undo, this session."""
+        with self.lock:
+            saved = {self.store.fid[i]: self.store.forget(i) for i in idx}
+            self._forgot()
+            self.store.save()
+        return saved
+
+    def _forgot(self):
+        for k in ("E", "E_n", "gone", "st", "st_n", "fm", "fm_n", "fc", "fc_n", "fs"):
+            self._cache.pop(k, None)
+        self.groups = None
+        self.changed()
 
     def rec(self, i):
         return self.labels.get(self.store.fid[i], {})
@@ -241,7 +272,7 @@ class LabelDB:
     def triage(self):
         """Every unnamed face: (index, best name, best score, second score). Cached per version."""
         if "tri" not in self._cache:
-            idx = [i for i in range(self.n) if not self.name(i)]
+            idx = [i for i in range(self.n) if not self.name(i) and not self.printless(i)]
             names, P = self.score(idx)
             bn, bs, ss = self.best(names, P)
             self._cache["tri"] = list(zip(idx, bn, bs.tolist(), ss.tolist()))
@@ -295,11 +326,13 @@ class LabelDB:
     def _face_sets(self):
         """(real, junk) face indexes to learn faceness from: real = faces from the normal detector (85% sure;
         named or not, but not Ignored: trained on only the named ones, it ranked real faces worse) and
-        possible faces you named; junk = possible faces not named, or Ignored (most possible faces aren't
+        possible faces you named; junk = possible faces not named (Ignored ones have no print left; most possible faces aren't
         faces: 85% of a hand-sorted sample of 160). Faces drawn by hand count as neither."""
         pos, neg = [], []
         for i in range(self.n):
             nm, mb = self.name(i), self.maybe(i)
+            if self.printless(i):                       # Ignored faces: no print left to learn from
+                continue
             if mb is None:
                 if nm != IGNORE:
                     pos.append(i)
@@ -642,6 +675,8 @@ class LabelDB:
                 else:
                     self.labels.pop(fid, None)
             self._commit(before, text or self._describe(action, len(idx), name))
+            if action == "ignore" and before:    # an ignored face's print and picture aren't kept
+                self.undo_stack[-1]["prints"] = self.forget_faces(idx)
         return len(idx)
 
     @staticmethod
@@ -681,6 +716,13 @@ class LabelDB:
                     self.labels[fid] = old
                 else:
                     self.labels.pop(fid, None)
+            if step.get("prints"):               # Undo of Ignore: the print and picture come back (kept in memory)
+                idx_of = {f: i for i, f in enumerate(self.store.fid)}
+                for fid, kept in step["prints"].items():
+                    if fid in idx_of:
+                        self.store.restore(idx_of[fid], kept)
+                self._forgot()
+                self.store.save()
             self._save(f"Undo: {step['text']}", [f for f, _ in step["before"]])
             return step["text"]
 
@@ -728,6 +770,17 @@ class LabelDB:
                 self.build_people()
             return len(hits)
 
+    @staticmethod
+    def _backup_before_forgetting():
+        """One copy of faces.npz and thumbs.npz before the v1.9 change deletes ignored faces' prints and pictures
+        (labels.json backups don't hold them, so it couldn't be undone otherwise). Returns the folder."""
+        d = F.DATA / "backups" / time.strftime("before-v1.9-ignore-%Y%m%d-%H%M%S")
+        d.mkdir(parents=True, exist_ok=True)
+        for name in ("faces.npz", "thumbs.npz"):
+            if (F.DATA / name).exists():
+                shutil.copy2(F.DATA / name, d / name)
+        return d
+
     def backup(self, keep=20):
         src = F.DATA / "labels.json"
         if src.exists():
@@ -747,7 +800,14 @@ class LabelDB:
                 return False
             if not embs:
                 return True
-            S = np.asarray(embs, np.float32) @ self.E()[old].T
+            # Ignored faces have no print left: they can't be compared, so the photo's other faces decide (with
+            # only Ignored faces, the picture fingerprint alone): else a copy would bring an ignored face back
+            keep = [i for i in old if not self.printless(i)]
+            if not keep:
+                return True
+            S = np.asarray(embs, np.float32) @ self.E()[keep].T
+            if len(keep) < len(old):             # each remaining old face is among the new ones
+                return bool((S.max(0) >= sim).all())
             return bool((S.max(1) >= sim).all())
 
     def near_duplicate(self, fp):
